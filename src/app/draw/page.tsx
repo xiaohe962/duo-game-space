@@ -46,7 +46,7 @@ const BRUSH_SIZES = [2, 6, 12, 20];
 
 export default function DrawPage() {
   const router = useRouter();
-  const { pairCode, userId, nickname, room, isPaired, isHost, partnerNickname } = usePairAuth();
+  const { pairCode, userId, nickname, room, isPaired, isHost, partnerNickname, isLoading } = usePairAuth();
 
   // 会话状态
   const [session, setSession] = useState<DrawSession | null>(null);
@@ -71,8 +71,10 @@ export default function DrawPage() {
   const isPainter = session ? session.painter_id === userId : isHost;
 
   useEffect(() => {
-    if (!pairCode) router.replace('/');
-  }, [pairCode, router]);
+    if (!isLoading && !pairCode) {
+      router.replace('/');
+    }
+  }, [isLoading, pairCode, router]);
 
   // 高清屏 (Retina / 2K+ 平板) 物理像素校准
   const calibrateCanvasResolution = useCallback(() => {
@@ -636,6 +638,15 @@ export default function DrawPage() {
     const len = session.word.length;
     return Array(len).fill('_').join(' ') + ` (${len} 字)`;
   };
+
+  if (isLoading || !pairCode) {
+    return (
+      <div className="min-h-dvh flex flex-col items-center justify-center gap-3">
+        <div className="w-8 h-8 rounded-full border-2 border-slate-300 border-t-blue-600 animate-spin" />
+        <p className="text-xs text-slate-500 font-mono">LOADING ROOM...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh max-w-6xl mx-auto px-3 sm:px-4 py-3 md:py-6 flex flex-col justify-between space-y-3">

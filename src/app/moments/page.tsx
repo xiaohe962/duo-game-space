@@ -56,7 +56,7 @@ const MOODS = ['📌', '🎮', '☕', '💡', '🚀', '✨', '⚡', '🌙'];
 
 export default function MomentsPage() {
   const router = useRouter();
-  const { pairCode, userId, role, nickname, partnerNickname } = usePairAuth();
+  const { pairCode, userId, role, nickname, partnerNickname, isLoading } = usePairAuth();
 
   const [posts, setPosts] = useState<CouplePost[]>([]);
   const [content, setContent] = useState('');
@@ -67,8 +67,8 @@ export default function MomentsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!pairCode) router.replace('/');
-  }, [pairCode, router]);
+    if (!isLoading && !pairCode) router.replace('/');
+  }, [isLoading, pairCode, router]);
 
   const fetchPosts = useCallback(async () => {
     if (!pairCode) return;
@@ -198,6 +198,15 @@ export default function MomentsPage() {
       await supabase.from('couple_posts').delete().eq('id', postId);
     }
   };
+
+  if (isLoading || !pairCode) {
+    return (
+      <div className="min-h-dvh flex flex-col items-center justify-center gap-3">
+        <div className="w-8 h-8 rounded-full border-2 border-slate-300 border-t-blue-600 animate-spin" />
+        <p className="text-xs text-slate-500 font-mono">LOADING MOMENTS...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-dvh max-w-3xl mx-auto px-4 py-4 md:py-8 space-y-5">

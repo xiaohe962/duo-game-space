@@ -35,7 +35,7 @@ import {
 
 export default function GuessPage() {
   const router = useRouter();
-  const { pairCode, userId, nickname, room, isPaired, isHost, partnerNickname } = usePairAuth();
+  const { pairCode, userId, nickname, room, isPaired, isHost, partnerNickname, isLoading } = usePairAuth();
 
   // 会话状态
   const [session, setSession] = useState<GuessSession | null>(null);
@@ -68,10 +68,10 @@ export default function GuessPage() {
   const myRoleName = isMaster ? '出题人 (回答 是/否)' : '猜词人 (提问与竞猜)';
 
   useEffect(() => {
-    if (!pairCode) {
+    if (!isLoading && !pairCode) {
       router.replace('/');
     }
-  }, [pairCode, router]);
+  }, [isLoading, pairCode, router]);
 
   const initOrFetchSession = useCallback(async () => {
     if (!pairCode) return;
