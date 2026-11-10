@@ -326,12 +326,15 @@ export default function DrawPage() {
   // Pointer Events 平板触控笔与防误触处理
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isPainter || session?.status !== 'drawing') return;
-    // 多指误触拦截：仅响应主触控点
-    if (!e.isPrimary) return;
+    if (e.isPrimary === false) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
-    canvas.setPointerCapture(e.pointerId);
+    try {
+      if (typeof canvas.setPointerCapture === 'function' && e.pointerId !== undefined) {
+        canvas.setPointerCapture(e.pointerId);
+      }
+    } catch (_) {}
 
     const point = getNormalizedPoint(e);
     if (!point) return;
@@ -341,7 +344,8 @@ export default function DrawPage() {
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDrawingRef.current || !isPainter || session?.status !== 'drawing' || !e.isPrimary) return;
+    if (!isDrawingRef.current || !isPainter || session?.status !== 'drawing') return;
+    if (e.isPrimary === false) return;
     const currentPoint = getNormalizedPoint(e);
     if (!currentPoint || !lastPointRef.current) return;
 
@@ -390,13 +394,13 @@ export default function DrawPage() {
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.isPrimary) {
-      isDrawingRef.current = false;
-      lastPointRef.current = null;
-      try {
-        canvasRef.current?.releasePointerCapture(e.pointerId);
-      } catch (err) {}
-    }
+    isDrawingRef.current = false;
+    lastPointRef.current = null;
+    try {
+      if (typeof canvasRef.current?.releasePointerCapture === 'function' && e.pointerId !== undefined) {
+        canvasRef.current.releasePointerCapture(e.pointerId);
+      }
+    } catch (err) {}
   };
 
   // 清空画板
