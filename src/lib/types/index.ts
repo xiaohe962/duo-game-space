@@ -22,6 +22,9 @@ export interface CoupleRoom {
 }
 
 // 模块 3：动态空间
+export type PostType = 'normal' | 'status' | 'badge_reward' | 'doodle';
+export type BadgeType = 'flower' | 'star' | 'coffee' | 'hug';
+
 export interface CouplePost {
   id: string;
   pair_code: string;
@@ -30,7 +33,49 @@ export interface CouplePost {
   content: string;
   image_url?: string | null;
   mood: string;
+  parent_id?: string | null;
+  post_type?: PostType;
   created_at: string;
+}
+
+export interface BadgeBalance {
+  pair_code: string;
+  user_id: string;
+  badge_type: BadgeType;
+  count: number;
+  updated_at: string;
+}
+
+export interface BadgeLog {
+  id: string;
+  pair_code: string;
+  sender_id: string;
+  sender_nickname: string;
+  receiver_id: string;
+  receiver_nickname: string;
+  badge_type: BadgeType;
+  delta: number;
+  reason?: string | null;
+  post_id?: string | null;
+  created_at: string;
+}
+
+export interface PostReaction {
+  id: string;
+  pair_code: string;
+  post_id: string;
+  user_id: string;
+  user_nickname: string;
+  emoji: string;
+  created_at: string;
+}
+
+export interface UserStatus {
+  user_id: string;
+  pair_code: string;
+  status_icon: string;
+  status_text: string;
+  updated_at: string;
 }
 
 // 模块 1：GuessWhat

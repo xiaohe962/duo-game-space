@@ -29,7 +29,55 @@ CREATE TABLE IF NOT EXISTS public.couple_posts (
     content TEXT NOT NULL,
     image_url TEXT,
     mood VARCHAR(32) DEFAULT '📌',
+    parent_id UUID REFERENCES public.couple_posts(id) ON DELETE CASCADE,
+    post_type VARCHAR(32) DEFAULT 'normal',
     created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 2.1 徽章与小红花账户表
+CREATE TABLE IF NOT EXISTS public.badge_balances (
+    pair_code VARCHAR(4) NOT NULL REFERENCES public.couple_rooms(code) ON DELETE CASCADE,
+    user_id VARCHAR(64) NOT NULL,
+    badge_type VARCHAR(32) NOT NULL, -- 'flower', 'star', 'coffee', 'hug'
+    count INT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (pair_code, user_id, badge_type)
+);
+
+-- 2.2 徽章收支明细流水表
+CREATE TABLE IF NOT EXISTS public.badge_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pair_code VARCHAR(4) NOT NULL REFERENCES public.couple_rooms(code) ON DELETE CASCADE,
+    sender_id VARCHAR(64) NOT NULL,
+    sender_nickname VARCHAR(64) NOT NULL,
+    receiver_id VARCHAR(64) NOT NULL,
+    receiver_nickname VARCHAR(64) NOT NULL,
+    badge_type VARCHAR(32) NOT NULL,
+    delta INT NOT NULL,
+    reason TEXT,
+    post_id UUID REFERENCES public.couple_posts(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 2.3 动态贴纸表态表
+CREATE TABLE IF NOT EXISTS public.post_reactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pair_code VARCHAR(4) NOT NULL REFERENCES public.couple_rooms(code) ON DELETE CASCADE,
+    post_id UUID NOT NULL REFERENCES public.couple_posts(id) ON DELETE CASCADE,
+    user_id VARCHAR(64) NOT NULL,
+    user_nickname VARCHAR(64) NOT NULL,
+    emoji VARCHAR(32) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (post_id, user_id, emoji)
+);
+
+-- 2.4 用户实时状态表
+CREATE TABLE IF NOT EXISTS public.user_status (
+    user_id VARCHAR(64) PRIMARY KEY,
+    pair_code VARCHAR(4) NOT NULL REFERENCES public.couple_rooms(code) ON DELETE CASCADE,
+    status_icon VARCHAR(32) NOT NULL,
+    status_text TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- 3. 模块 1：GuessWhat（猜词小游戏会话表）
@@ -107,6 +155,11 @@ CREATE TABLE IF NOT EXISTS public.draw_messages (
 -- 5. 核心查询索引
 CREATE INDEX IF NOT EXISTS idx_couple_rooms_code ON public.couple_rooms(code);
 CREATE INDEX IF NOT EXISTS idx_couple_posts_pair ON public.couple_posts(pair_code, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_couple_posts_parent ON public.couple_posts(parent_id);
+CREATE INDEX IF NOT EXISTS idx_badge_balances_pair ON public.badge_balances(pair_code, user_id);
+CREATE INDEX IF NOT EXISTS idx_badge_logs_pair ON public.badge_logs(pair_code, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_post_reactions_post ON public.post_reactions(post_id);
+CREATE INDEX IF NOT EXISTS idx_user_status_pair ON public.user_status(pair_code);
 CREATE INDEX IF NOT EXISTS idx_guess_sessions_pair ON public.guess_sessions(pair_code);
 CREATE INDEX IF NOT EXISTS idx_guess_questions_session ON public.guess_questions(session_id);
 CREATE INDEX IF NOT EXISTS idx_guess_records_session ON public.guess_records(session_id);
@@ -116,6 +169,10 @@ CREATE INDEX IF NOT EXISTS idx_draw_messages_session ON public.draw_messages(ses
 -- 6. 开启 Supabase Realtime 复制
 ALTER PUBLICATION supabase_realtime ADD TABLE public.couple_rooms;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.couple_posts;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.badge_balances;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.badge_logs;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.post_reactions;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.user_status;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.guess_sessions;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.guess_questions;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.guess_records;
@@ -125,6 +182,10 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.draw_messages;
 -- 7. 启用行级安全策略 (RLS)
 ALTER TABLE public.couple_rooms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.couple_posts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.badge_balances ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.badge_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.post_reactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_status ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.guess_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.guess_questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.guess_records ENABLE ROW LEVEL SECURITY;
@@ -133,6 +194,10 @@ ALTER TABLE public.draw_messages ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Allow public read-write for couple_rooms" ON public.couple_rooms FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read-write for couple_posts" ON public.couple_posts FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public read-write for badge_balances" ON public.badge_balances FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public read-write for badge_logs" ON public.badge_logs FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public read-write for post_reactions" ON public.post_reactions FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow public read-write for user_status" ON public.user_status FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read-write for guess_sessions" ON public.guess_sessions FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read-write for guess_questions" ON public.guess_questions FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read-write for guess_records" ON public.guess_records FOR ALL USING (true) WITH CHECK (true);
