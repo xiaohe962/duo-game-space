@@ -1,0 +1,50 @@
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# Next.js Build Outputs & Cache
+/.next/
+/out/
+.next
+
+# Legacy Android and Build Artifacts (500MB+)
+/legacy_android/
+/.gradle/
+*.apk
+*.aab
+*.log
+
+# Environment Variables (Keep .env.example only)
+.env*.local
+.env
+.env.production
+.env.development
+!.env.example
+
+# Debug & Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Vercel & IDE
+.vercel
+.turbo
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
