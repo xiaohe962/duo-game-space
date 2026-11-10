@@ -1,23 +1,22 @@
 # 双人专属小游戏合集与互动空间 (PROGRESS.md)
 
-## 1. 当前核心架构与技术选型 (v2.0 升级版)
-- **三大板块规范命名**：**GuessWhat**（猜词对决）、**你画我猜**（远程联机画板）、**动态空间**（双人动态信息流）。
-- **视口与全端适配**：统一使用 `min-h-dvh` 消除移动端/平板地址栏遮挡；提供 PC（双列宽屏）、平板（横竖屏自适应）、手机（`pb-safe` 紧凑底栏）三端断点。
-- **平板触控画板引擎**：全面升级至 **Pointer Events** + `setPointerCapture` + 多指误触过滤（`isPrimary`）；引入 `devicePixelRatio` 物理像素自适应校准与**中点二次贝塞尔平滑滤波**；画板容器声明 `touch-action: none; overscroll-behavior: none;`。
-- **调色与笔刷体系**：16 色高频色盘 + 原生 `<input type="color">` 百万色拾色器 + 4 档粗细带实时尺寸预览圆点 + 一键清屏防误触二次确认。
-- **跨端账号与身份漫游体系**：基于“4 位房间码 + 角色（ROLE A / ROLE B）+ 独立密钥（PIN）”生成确定性 `userId`（如 `pair_8821_host`），在手机、平板或电脑输入相同凭证即可秒级拉取同一账号，说说历史与战绩跨设备 100% 一致。
+## 1. 当前核心架构与代码库状态
+- **全栈架构**：Next.js 15.5 (App Router) + React 19 + TypeScript + Tailwind CSS 3.4 + Supabase Realtime/Postgres。
+- **三大板块规范命名**：**GuessWhat**、**你画我猜**、**动态空间**。
+- **仓库与部署状态**：已成功推送至 GitHub 远程仓库 (`https://github.com/xiaohe962/duo-game-space.git`，`main` 分支)。
+- **部署适配配置**：根目录已配置 `netlify.toml`（指定 `npm run build`、发布目录 `.next` 及 `@netlify/plugin-nextjs` 插件），解决 Netlify 部署 404 与构建识别问题。
 
-## 2. 模块研发与交付状态 (全量通过)
-- [x] **规范全站命名**：全站导航栏、大厅卡片、对局头衔及路由彻底统一为 GuessWhat、你画我猜、动态空间。
-- [x] **画板平板端深度优化**：消除运笔折线锯齿与错位，支持 Apple Pencil、普通触控笔与单指作画。
-- [x] **画板色彩与工具升级**：16 种高频预设色 + 调色管拾色 + 笔刷大小视觉预览 + 橡皮擦 + 清屏确认。
-- [x] **全端视口与键盘适配**：引入 `dvh` 与 `pb-safe`，键盘弹起不挤压画板。
-- [x] **多端登录与身份认领**：`/` 页面支持角色选择与独立密钥输入验证，`localStorage` 本地自动记忆。
+## 2. 核心功能与技术特性已锁定
+- [x] **跨端账号与身份漫游**：基于“4 位房间码 + 角色（ROLE A / ROLE B）+ 独立密钥（PIN）”，手机/平板/电脑输入相同凭据秒级登录同一账号。
+- [x] **平板触控画板引擎**：全面基于 Pointer Events + `setPointerCapture` + 多指防误触；`devicePixelRatio` 物理像素校准与中点二次贝塞尔平滑滤波；容器 `touch-action: none; overscroll-behavior: none;`。
+- [x] **画板色彩与工具**：16 色高频色盘 + 自定义拾色器 + 4 档粗细带实时预览圆点 + 橡皮擦 + 清屏确认。
+- [x] **全端自适应响应式**：`min-h-dvh` 消除地址栏遮挡；PC（双列）、平板（横竖屏自适应）、手机（`pb-safe` 紧凑底栏）。
+- [x] **Git 极速交付流水线**：根目录 `push_to_github.bat`，支持后续修改后一键同步 GitHub。
 
-## 3. 已验证指标与构建结论
-- **生产构建验证**：全量 8 个 App Router 页面 `100% Compiled successfully`，类型校验与静态生成 0 报错通过。
-- **启动与调试**：根目录下 `[双击启动] 开发服务器.bat` 持续有效。
+## 3. 已验证构建与推送结论
+- **代码构建**：`npm run build` 全量 8 个 App Router 页面 `100% Compiled successfully`。
+- **远程推送**：`netlify.toml` 已成功推送至 GitHub `main` 分支（Commit: `4fe6012`）。
 
-## 4. 后续建议 (Next Steps)
-- 若已配置 Supabase 线上数据库，将 `supabase/schema.sql` 覆盖执行一次以更新 `host_pin` 与 `guest_pin`。
-- 本地启动后可在 PC 端登录“角色 A”，平板端输入相同房间码与 PIN 登录“角色 A”（验证多端同号），或登录“角色 B”（验证双端对战）。
+## 4. 后续指引 (Next Steps)
+- 打开 Netlify 控制台，因代码库已有最新 commit，Netlify 将自动触发全新构建并加载 `@netlify/plugin-nextjs`。
+- 确保 Netlify 的 Environment variables 中已配置好 `NEXT_PUBLIC_SUPABASE_URL` 与 `NEXT_PUBLIC_SUPABASE_ANON_KEY`。
