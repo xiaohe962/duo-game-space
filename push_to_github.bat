@@ -4,7 +4,7 @@ set "PATH=C:\Program Files\Git\cmd;%PATH%"
 cd /d "%~dp0"
 
 echo ========================================================
-echo   [DUOSPACE] Syncing local changes to GitHub & Netlify
+echo   [DUOSPACE] Syncing local changes to GitHub and Netlify
 echo ========================================================
 
 echo [1/3] Staging modified files...
