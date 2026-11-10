@@ -66,6 +66,7 @@ export default function DrawPage() {
   const isDrawingRef = useRef<boolean>(false);
   const lastPointRef = useRef<DrawStrokePoint | null>(null);
   const strokeHistoryRef = useRef<DrawStrokePayload[]>([]);
+  const channelRef = useRef<any>(null);
 
   // 角色判定
   const isPainter = session ? session.painter_id === userId : isHost;
@@ -176,6 +177,7 @@ export default function DrawPage() {
     const channel = supabase.channel(`draw_realtime_${pairCode}`, {
       config: { broadcast: { self: false } },
     });
+    channelRef.current = channel;
 
     channel.on('broadcast', { event: 'STROKE' }, ({ payload }) => {
       handleRemoteStroke(payload as DrawStrokePayload);
@@ -196,13 +198,15 @@ export default function DrawPage() {
 
     return () => {
       supabase.removeChannel(channel);
+      channelRef.current = null;
     };
   }, [pairCode]);
 
   const broadcastStroke = (stroke: DrawStrokePayload) => {
     if (!pairCode) return;
     strokeHistoryRef.current.push(stroke);
-    supabase.channel(`draw_realtime_${pairCode}`).send({
+    const targetChannel = channelRef.current || supabase.channel(`draw_realtime_${pairCode}`);
+    targetChannel.send({
       type: 'broadcast',
       event: 'STROKE',
       payload: stroke,
@@ -215,7 +219,8 @@ export default function DrawPage() {
     event?: 'CORRECT' | 'DING'
   ) => {
     if (!pairCode) return;
-    supabase.channel(`draw_realtime_${pairCode}`).send({
+    const targetChannel = channelRef.current || supabase.channel(`draw_realtime_${pairCode}`);
+    targetChannel.send({
       type: 'broadcast',
       event: 'GAME_STATE',
       payload: {
