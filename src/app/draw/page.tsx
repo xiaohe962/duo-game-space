@@ -21,6 +21,7 @@ import {
   MessageSquare,
   Pipette,
   Check,
+  RefreshCw,
 } from 'lucide-react';
 
 const PRESET_COLORS = [
@@ -177,8 +178,20 @@ export default function DrawPage() {
 
   useEffect(() => {
     initOrFetchSession();
-    setCandidateWords(getRandomWords(4));
   }, [initOrFetchSession]);
+
+  // 每局固定锁定 4 个候选词，避免组件渲染或重连时题目不断跳变
+  useEffect(() => {
+    if (candidateWords.length === 0) {
+      setCandidateWords(getRandomWords(4));
+    }
+  }, [candidateWords.length]);
+
+  // 主动换一批候选题目
+  const handleRefreshWords = () => {
+    setCandidateWords(getRandomWords(4));
+    soundEffects.playPop();
+  };
 
   // Supabase Realtime 笔迹广播与状态订阅
   useEffect(() => {
@@ -745,6 +758,18 @@ export default function DrawPage() {
                     </span>
                   </button>
                 ))}
+              </div>
+
+              {/* 换一批按钮 */}
+              <div className="pt-2 flex justify-center">
+                <button
+                  type="button"
+                  onClick={handleRefreshWords}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-white text-xs text-slate-600 hover:text-slate-900 font-medium transition-all shadow-sm active:scale-95"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+                  <span>换一批题目</span>
+                </button>
               </div>
             </div>
           ) : (
