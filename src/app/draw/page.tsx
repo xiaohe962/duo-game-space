@@ -84,8 +84,10 @@ export default function DrawPage() {
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    if (rect.width > 0 && rect.height > 0) {
+      canvas.width = Math.round(rect.width * dpr);
+      canvas.height = Math.round(rect.height * dpr);
+    }
 
     const ctx = canvas.getContext('2d');
     if (ctx) {
@@ -99,6 +101,14 @@ export default function DrawPage() {
     window.addEventListener('resize', calibrateCanvasResolution);
     return () => window.removeEventListener('resize', calibrateCanvasResolution);
   }, [calibrateCanvasResolution]);
+
+  // 当进入作画阶段且 Canvas 挂载后，自动执行物理尺寸校准
+  useEffect(() => {
+    if (session?.status === 'drawing') {
+      const timer = setTimeout(calibrateCanvasResolution, 60);
+      return () => clearTimeout(timer);
+    }
+  }, [session?.status, calibrateCanvasResolution]);
 
   // 初始化或拉取现有对局
   const initOrFetchSession = useCallback(async () => {
@@ -769,6 +779,9 @@ export default function DrawPage() {
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerCancel={handlePointerUp}
+                onMouseDown={handlePointerDown as any}
+                onMouseMove={handlePointerMove as any}
+                onMouseUp={handlePointerUp as any}
                 className={`touch-drawing w-full h-[340px] sm:h-[400px] md:h-[480px] lg:h-[520px] rounded-xl bg-white border border-slate-100 cursor-crosshair shadow-inner ${
                   !isPainter ? 'pointer-events-none' : ''
                 }`}
