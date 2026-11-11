@@ -959,7 +959,7 @@ export default function DrawPage() {
           <button
             type="button"
             onClick={() => router.push('/lobby')}
-            className="px-2 py-0.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-xs"
+            className="px-2 py-0.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-xs touch-manipulation select-none cursor-pointer"
             title="返回大厅"
           >
             退出

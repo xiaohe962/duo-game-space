@@ -1235,8 +1235,8 @@ export default function MomentsPage() {
         )}
       </div>
 
-      {/* 底部固定输入区（QQ 式输入条） */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-2 sm:p-2.5 space-y-1.5 shrink-0 mt-1">
+      {/* 底部固定输入区（QQ 式输入条，紧贴底部防输入法遮挡） */}
+      <div className="sticky bottom-0 z-20 bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/90 shadow-md p-2 sm:p-2.5 space-y-1.5 shrink-0 mt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {/* 引用回复提示条 */}
         {replyingTo && (
           <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-1 text-xs text-blue-900 animate-fade-in">
@@ -1382,6 +1382,9 @@ export default function MomentsPage() {
             rows={1}
             value={content}
             onChange={(e) => setContent(e.target.value)}
+            onFocus={() => {
+              setTimeout(() => scrollToBottom(true), 150);
+            }}
             onPaste={handlePaste}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {

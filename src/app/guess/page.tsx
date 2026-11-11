@@ -23,6 +23,7 @@ import {
   Sparkles,
   Send,
   RotateCcw,
+  RefreshCw,
   CheckCircle2,
   XCircle,
   HelpCircle as QuestionIcon,
@@ -31,6 +32,8 @@ import {
   User,
   Lightbulb,
   MessageCircle,
+  Flag,
+  AlertTriangle,
 } from 'lucide-react';
 
 export default function GuessPage() {
@@ -63,8 +66,14 @@ export default function GuessPage() {
     '它的价格通常很昂贵吗？',
   ];
 
-  // 角色判定
-  const isMaster = session ? session.master_id === userId : isHost;
+  // 角色判定（严格按 host/guest 对称判定，彻底解决角色互换死锁 bug）
+  const hostId = `pair_${pairCode}_host`;
+  const guestId = `pair_${pairCode}_guest`;
+  const isMaster = session
+    ? session.master_id === userId ||
+      (session.master_id.includes('host') && isHost) ||
+      (session.master_id.includes('guest') && !isHost)
+    : isHost;
   const myRoleName = isMaster ? '出题人 (回答 是/否)' : '猜词人 (提问与竞猜)';
 
   useEffect(() => {
@@ -84,8 +93,8 @@ export default function GuessPage() {
         pair_code: pairCode,
         round_number: 1,
         status: 'word_selection',
-        master_id: userId,
-        guesser_id: 'guest_user',
+        master_id: hostId,
+        guesser_id: guestId,
         theme: selectedTheme,
         secret_word: null,
         secret_word_category: null,
@@ -126,15 +135,14 @@ export default function GuessPage() {
           .order('created_at', { ascending: true });
         setRecords((rList as GuessRecord[]) || []);
       } else {
-        const partnerId = isHost ? (room?.guest_user_id || 'guest_user') : (room?.host_user_id || 'host_user');
         const { data: newSession } = await supabase
           .from('guess_sessions')
           .insert({
             pair_code: pairCode,
             round_number: 1,
             status: 'word_selection',
-            master_id: userId,
-            guesser_id: partnerId,
+            master_id: hostId,
+            guesser_id: guestId,
             theme: selectedTheme,
           })
           .select()
@@ -149,7 +157,7 @@ export default function GuessPage() {
     } finally {
       setLoading(false);
     }
-  }, [pairCode, userId, isHost, room, selectedTheme]);
+  }, [pairCode, hostId, guestId, selectedTheme]);
 
   useEffect(() => {
     initOrFetchSession();
@@ -358,12 +366,120 @@ export default function GuessPage() {
     }
   };
 
+  // 换一批候选词条
+  const handleRefreshWords = () => {
+    setCandidateWords(getRandomWords(4, selectedTheme));
+    soundEffects.playPop();
+  };
+
+  // 出题人提供提示线索
+  const handleProvideHint = async (hintText: string) => {
+    const text = hintText.trim();
+    if (!text || !session) return;
+    const hintQ: GuessQuestion = {
+      id: 'hint_' + Date.now(),
+      session_id: session.id,
+      pair_code: pairCode || '',
+      question_number: questions.length + 1,
+      text: `💡 线索提示：${text}`,
+      answer: 'yes',
+      answered_at: new Date().toISOString(),
+      created_at: new Date().toISOString(),
+    };
+    const nextQuestions = [...questions, hintQ];
+    setQuestions(nextQuestions);
+    soundEffects.playDing();
+    broadcastUpdate(session, nextQuestions, records, 'ding');
+
+    if (isSupabaseConfigured) {
+      await supabase.from('guess_questions').insert({
+        session_id: session.id,
+        pair_code: pairCode,
+        question_number: hintQ.question_number,
+        text: hintQ.text,
+        answer: 'yes',
+        answered_at: hintQ.answered_at,
+      });
+    }
+  };
+
+  // 猜词人主动认输揭晓答案
+  const handleSurrender = async () => {
+    if (!session || !session.secret_word) return;
+    const nextSession: GuessSession = {
+      ...session,
+      status: 'settled',
+      result: 'surrendered',
+      ended_at: new Date().toISOString(),
+    };
+    setSession(nextSession);
+    soundEffects.playPop();
+    broadcastUpdate(nextSession, questions, records, 'ding');
+
+    if (isSupabaseConfigured) {
+      await supabase
+        .from('guess_sessions')
+        .update({
+          status: 'settled',
+          result: 'surrendered',
+          ended_at: new Date().toISOString(),
+        })
+        .eq('id', session.id);
+    }
+  };
+
+  // 重新开始第 1 轮
+  const handleRestartGame = async () => {
+    if (!pairCode) return;
+    const restartedSession: GuessSession = {
+      id: 'guess_' + Date.now(),
+      pair_code: pairCode,
+      round_number: 1,
+      status: 'word_selection',
+      master_id: hostId,
+      guesser_id: guestId,
+      theme: selectedTheme,
+      secret_word: null,
+      secret_word_category: null,
+      secret_word_note: null,
+      questions_count: 0,
+      wrong_guesses_count: 0,
+      result: null,
+      created_at: new Date().toISOString(),
+      ended_at: null,
+    };
+
+    setSession(restartedSession);
+    setQuestions([]);
+    setRecords([]);
+    setCandidateWords(getRandomWords(4, selectedTheme));
+    soundEffects.playDing();
+    broadcastUpdate(restartedSession, [], [], 'ding');
+
+    if (isSupabaseConfigured) {
+      await supabase.from('guess_sessions').insert({
+        pair_code: pairCode,
+        round_number: 1,
+        status: 'word_selection',
+        master_id: hostId,
+        guesser_id: guestId,
+        theme: selectedTheme,
+      });
+    }
+  };
+
   const handleStartNewRound = async (swapRoles: boolean) => {
     if (!session || !pairCode) return;
-    const nextMasterId = swapRoles ? session.guesser_id : session.master_id;
-    const nextGuesserId = swapRoles ? session.master_id : session.guesser_id;
+    const lastMasterIsHost =
+      session.master_id.includes('host') ||
+      (session.master_id === userId ? isHost : !isHost);
 
-    const newRoundNumber = session.round_number + 1;
+    const nextMasterId = swapRoles
+      ? (lastMasterIsHost ? guestId : hostId)
+      : (lastMasterIsHost ? hostId : guestId);
+    const nextGuesserId = nextMasterId === hostId ? guestId : hostId;
+
+    const newRoundNumber = (session.round_number || 1) + 1;
     const newSession: GuessSession = {
       id: 'session_' + Date.now(),
       pair_code: pairCode,
@@ -371,7 +487,7 @@ export default function GuessPage() {
       status: 'word_selection',
       master_id: nextMasterId,
       guesser_id: nextGuesserId,
-      theme: '日常物品',
+      theme: selectedTheme,
       secret_word: null,
       secret_word_category: null,
       secret_word_note: null,
@@ -385,6 +501,7 @@ export default function GuessPage() {
     setSession(newSession);
     setQuestions([]);
     setRecords([]);
+    setCandidateWords(getRandomWords(4, selectedTheme));
 
     broadcastUpdate(newSession, [], [], 'ding');
 
@@ -397,7 +514,7 @@ export default function GuessPage() {
           status: 'word_selection',
           master_id: nextMasterId,
           guesser_id: nextGuesserId,
-          theme: '日常物品',
+          theme: selectedTheme,
         })
         .select()
         .single();
@@ -429,8 +546,8 @@ export default function GuessPage() {
           </span>
         </div>
 
-        {/* 秘密词语胶囊 */}
-        <div className="flex items-center gap-2">
+        {/* 秘密词语胶囊与对局操作 */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {isMaster || session.status === 'settled' ? (
             <div className="px-2.5 py-0.5 rounded-lg bg-slate-100 border border-slate-200/80 text-right flex items-center gap-1">
               <span className="text-[10px] text-slate-400 font-mono">答案:</span>
@@ -446,6 +563,27 @@ export default function GuessPage() {
               </span>
             </div>
           )}
+
+          {/* 重新开始按钮 */}
+          <button
+            type="button"
+            onClick={handleRestartGame}
+            className="px-2 sm:px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 text-xs font-semibold flex items-center gap-1 transition-all active:scale-95 touch-manipulation select-none cursor-pointer"
+            title="重置对局并重新开始"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
+            <span className="text-[11px] sm:text-xs">重新开始</span>
+          </button>
+
+          {/* 退出按钮 */}
+          <button
+            type="button"
+            onClick={() => router.push('/lobby')}
+            className="px-2 py-0.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-xs touch-manipulation select-none cursor-pointer"
+            title="返回大厅"
+          >
+            退出
+          </button>
         </div>
       </div>
 
@@ -499,6 +637,18 @@ export default function GuessPage() {
                 ))}
               </div>
 
+              {/* 换一批候选词按钮 */}
+              <div className="flex justify-center pt-1">
+                <button
+                  type="button"
+                  onClick={handleRefreshWords}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-white text-xs text-slate-600 hover:text-slate-900 font-medium transition-all shadow-sm active:scale-95 touch-manipulation cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+                  <span>换一批题目</span>
+                </button>
+              </div>
+
               {/* 自定义词语输入 */}
               <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row gap-2.5">
                 <input
@@ -548,15 +698,37 @@ export default function GuessPage() {
           <div className="md:col-span-2 space-y-4">
             <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm min-h-[380px] flex flex-col justify-between">
               <div>
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-2">
                   <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5 uppercase font-mono">
                     <MessageCircle className="w-4 h-4 text-blue-600" />
-                    Question Log ({questions.length} / 20)
+                    20 问进度 ({questions.length} / 20)
                   </h3>
                   <span className="text-[11px] text-slate-400 font-mono">
-                    WRONG GUESSES: {session.wrong_guesses_count || 0}
+                    错误猜测: {session.wrong_guesses_count || 0}
                   </span>
                 </div>
+
+                {/* 20 问可视化进度条 */}
+                <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden mb-3">
+                  <div
+                    className={`h-full transition-all duration-300 ${
+                      questions.length >= 20
+                        ? 'bg-rose-500'
+                        : questions.length >= 15
+                        ? 'bg-amber-500'
+                        : 'bg-blue-600'
+                    }`}
+                    style={{ width: `${Math.min(100, (questions.length / 20) * 100)}%` }}
+                  />
+                </div>
+
+                {/* 20 问用尽提示 */}
+                {questions.length >= 20 && (
+                  <div className="mb-3 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-2 animate-fade-in">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>20 次提问机会已全部用尽！请在右侧提交最终猜词，或选择认输揭晓答案。</span>
+                  </div>
+                )}
 
                 {/* 问答列表 */}
                 {questions.length === 0 ? (
@@ -568,10 +740,20 @@ export default function GuessPage() {
                     {questions.map((q) => (
                       <div
                         key={q.id}
-                        className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2"
+                        className={`p-3 rounded-xl border text-xs space-y-2 ${
+                          q.text.startsWith('💡 线索提示')
+                            ? 'bg-amber-50/70 border-amber-200'
+                            : 'bg-slate-50 border-slate-200'
+                        }`}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <span className="font-medium text-slate-900">
+                          <span
+                            className={`font-medium ${
+                              q.text.startsWith('💡 线索提示')
+                                ? 'text-amber-900 font-bold'
+                                : 'text-slate-900'
+                            }`}
+                          >
                             #{q.question_number} {q.text}
                           </span>
                           {/* 回答标识 */}
@@ -624,6 +806,49 @@ export default function GuessPage() {
                     ))}
                   </div>
                 )}
+
+                {/* 出题人主动提供线索提示面板 */}
+                {isMaster && (
+                  <div className="pt-3 mt-3 border-t border-slate-100 space-y-1.5">
+                    <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
+                      <Lightbulb className="w-3.5 h-3.5 text-amber-500" />
+                      提供线索提示 (给毫无头绪的 TA 减负)
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleProvideHint(
+                            `字数提示：这个词一共有 ${session.secret_word?.length || 2} 个字`
+                          )
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-[11px] font-medium transition-colors"
+                      >
+                        + 字数 ({session.secret_word?.length || 2}字)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleProvideHint(`首字提示：第一个字是“${session.secret_word?.[0] || ''}”`)
+                        }
+                        className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-[11px] font-medium transition-colors"
+                      >
+                        + 首字 ({session.secret_word?.[0] || ''})
+                      </button>
+                      {session.secret_word_category && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleProvideHint(`分类提示：属于【${session.secret_word_category}】`)
+                          }
+                          className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-[11px] font-medium transition-colors"
+                        >
+                          + 分类提示
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 猜词人提问输入区 */}
@@ -638,14 +863,19 @@ export default function GuessPage() {
                   >
                     <input
                       type="text"
-                      placeholder="向 TA 提问（例如：它能在水里生活吗？）..."
+                      disabled={questions.length >= 20 || submitting}
+                      placeholder={
+                        questions.length >= 20
+                          ? '20 次提问机会已耗尽，请提交最终猜词或认输...'
+                          : '向 TA 提问（例如：它能在水里生活吗？）...'
+                      }
                       value={questionInput}
                       onChange={(e) => setQuestionInput(e.target.value)}
-                      className="flex-1 px-3.5 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-slate-900 bg-slate-50"
+                      className="flex-1 px-3.5 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-slate-900 bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400"
                     />
                     <button
                       type="submit"
-                      disabled={!questionInput.trim() || submitting}
+                      disabled={!questionInput.trim() || questions.length >= 20 || submitting}
                       className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-semibold shadow-sm transition-all flex items-center gap-1"
                     >
                       <Send className="w-3.5 h-3.5" /> 提问
@@ -653,17 +883,19 @@ export default function GuessPage() {
                   </form>
 
                   {/* 快捷问题锦囊 */}
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {QUICK_QUESTIONS.slice(0, 3).map((qq, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => handleAskQuestion(qq)}
-                        className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200 transition-colors"
-                      >
-                        + {qq}
-                      </button>
-                    ))}
-                  </div>
+                  {questions.length < 20 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {QUICK_QUESTIONS.slice(0, 3).map((qq, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => handleAskQuestion(qq)}
+                          className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200 transition-colors"
+                        >
+                          + {qq}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -696,6 +928,17 @@ export default function GuessPage() {
                   >
                     提交正式猜词
                   </button>
+
+                  {/* 猜词人认输 / 揭晓答案入口 */}
+                  <button
+                    type="button"
+                    onClick={handleSurrender}
+                    className="w-full py-2 rounded-xl border border-rose-200 hover:border-rose-300 text-rose-600 hover:bg-rose-50 text-xs font-semibold flex items-center justify-center gap-1 transition-all active:scale-95"
+                    title="认输并提前揭晓本轮秘密词语"
+                  >
+                    <Flag className="w-3.5 h-3.5" />
+                    认输 / 揭晓答案
+                  </button>
                 </form>
               ) : (
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 leading-relaxed font-mono">
@@ -722,7 +965,9 @@ export default function GuessPage() {
                         }`}
                       >
                         <span>{r.guess_text}</span>
-                        <span className="font-mono text-[11px]">{r.is_correct ? 'CORRECT 🎯' : 'WRONG ❌'}</span>
+                        <span className="font-mono text-[11px]">
+                          {r.is_correct ? 'CORRECT 🎯' : 'WRONG ❌'}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -735,42 +980,51 @@ export default function GuessPage() {
 
       {/* 阶段 3：回合结算页 */}
       {session.status === 'settled' && (
-        <div className="bg-white rounded-2xl p-8 border border-slate-200 shadow-lg text-center space-y-5 max-w-md mx-auto">
+        <div className="bg-white rounded-2xl p-8 border border-slate-200 shadow-lg text-center space-y-5 max-w-md mx-auto animate-fade-in my-auto">
           <div className="w-14 h-14 mx-auto rounded-2xl bg-slate-900 text-white flex items-center justify-center shadow-md">
             <Trophy className="w-7 h-7 text-amber-400" />
           </div>
 
           <div>
             <h2 className="text-lg font-bold text-slate-900">
-              {session.result === 'guessed' ? '🎉 竞猜成功！' : '本局已结束'}
+              {session.result === 'guessed'
+                ? '🎉 恭喜！成功猜出秘密词语！'
+                : '🏳️ 猜词人认输，本局答案已揭晓！'}
             </h2>
             <p className="text-xs text-slate-500 mt-1 font-mono">
               SECRET WORD: <strong className="text-sm text-slate-900 font-bold">{session.secret_word}</strong>
+              {session.secret_word_category && (
+                <span className="text-slate-400 ml-1">({session.secret_word_category})</span>
+              )}
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3 py-2 bg-slate-50 rounded-xl border border-slate-200 text-xs">
             <div>
-              <span className="text-slate-400 block text-[11px] font-mono">QUESTIONS</span>
-              <strong className="text-xs font-bold text-slate-800 font-mono">{questions.length}</strong>
+              <span className="text-slate-400 block text-[11px] font-mono">提问次数</span>
+              <strong className="text-xs font-bold text-slate-800 font-mono">
+                {questions.length} / 20
+              </strong>
             </div>
             <div>
-              <span className="text-slate-400 block text-[11px] font-mono">WRONG GUESSES</span>
-              <strong className="text-xs font-bold text-slate-800 font-mono">{session.wrong_guesses_count || 0}</strong>
+              <span className="text-slate-400 block text-[11px] font-mono">错误猜测</span>
+              <strong className="text-xs font-bold text-slate-800 font-mono">
+                {session.wrong_guesses_count || 0}
+              </strong>
             </div>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
             <button
               onClick={() => handleStartNewRound(true)}
-              className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
+              className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               互换角色再来一局
             </button>
             <button
               onClick={() => handleStartNewRound(false)}
-              className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-100 transition-colors"
+              className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-100 transition-colors active:scale-95 touch-manipulation cursor-pointer"
             >
               保持角色继续
             </button>

@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { usePairAuth } from '@/context/PairAuthContext';
 import {
   Gamepad2,
@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 
 export function Navbar() {
+  const router = useRouter();
   const pathname = usePathname();
   const { pairCode, isPaired, partnerOnline, partnerNickname, unbind, role } = usePairAuth();
   const [copied, setCopied] = useState(false);
@@ -69,14 +70,15 @@ export function Navbar() {
             </Link>
           ) : (
             <div className="flex items-center gap-2">
-              <Link
-                href="/lobby"
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors active:scale-95"
+              <button
+                type="button"
+                onClick={() => router.push('/lobby')}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-200 text-xs font-semibold transition-colors touch-manipulation select-none cursor-pointer"
                 title="返回主页大厅"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>返回主页</span>
-              </Link>
+              </button>
               {plateInfo.title && (
                 <div className="flex items-center gap-1.5 pl-2 border-l border-slate-700">
                   {PlateIcon && <PlateIcon className="w-3.5 h-3.5 text-blue-400" />}
