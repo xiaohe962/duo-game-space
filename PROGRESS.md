@@ -6,34 +6,27 @@
 - **线上站点**：`https://nimble-horse-be2b07.netlify.app`（Netlify 持续部署）。
 - **远程仓库**：`https://github.com/xiaohe962/duo-game-space.git` (`main` 分支)。
 
-## 2. 核心优化 10 项已全部完成并上线 (100% Complete)
-- [x] **项 1：你画我猜 UI 屏幕大小深度适配（Pad 端优化）**：
-  - Pad 及桌面端重构为 `md:grid-cols-12`，画板独占 8~9 列（`md:col-span-8 lg:col-span-9`）并充满视口全高；竞猜聊天区自适应收紧（竖屏下紧凑抽屉 `max-h-[190px]`），彻底消灭底部大片空白。
-- [x] **项 2：你画我猜超低延迟画笔架构重构**：
-  - 引入 20ms 微批次聚合（Micro-batching）和 4 笔缓冲发射机制，结合亚像素移动降噪（过滤 <1.5px 触控微抖动），画笔即画即达，消除队头阻塞。
-- [x] **项 3：两端倒计时绝对同步与重进状态恢复**：
-  - 挂钟基准校准（Wall-Clock Delta）：开局时间戳持久化记录到 `session.scores.round_start_time`，退出重进动态换算 `120 - elapsed`，双端毫秒对齐，永不重置。
-- [x] **项 4：你画我猜互换身份 Bug 根除**：
-  - 重构 `isPainter` 与 `handleStartNextRound` 身份流转逻辑，严格基于 `host`/`guest` 角色归属做对称判定，消除两端均卡在“对方正在挑选题目”的死锁状态。
-- [x] **项 5：你画我猜顶部增加“重新开始”按钮**：
-  - 顶部栏常驻显示 `RotateCcw` “重新开始”按钮（移动端与大屏均清晰展示），一键重置当前对局为第 1 轮选题状态并广播全端。
-- [x] **项 6：动态空间发送消息实时秒级直达对方**：
-  - 采用 Supabase Realtime Broadcast `MOMENTS_NEW_POST` 极速通道，广播与数据库双写，对方在 30ms 内同步呈现并平滑吸底。
-- [x] **项 7：动态空间小红花账本与余额实时更新**：
-  - **增减即时生效**：乐观更新本地余额与账本流水，写入 localStorage 并广播 `MOMENTS_BADGE_UPDATE`；
-  - **跨设备身份兼容匹配**：`getBadgeCountForUser` 兼容匹配多种 UID 与角色标识，杜绝账本流水与小红花数量不同步或显示为 0 的异常。
-- [x] **项 8：全站所有返回/退出按钮灵敏度根治**：
-  - 顶部导航栏及各游戏内返回按钮全面升级为高优先级原生 `<button>`，剔除产生 300ms 延迟与手势冲突的 `Link` + `active:scale-95`，加入 `touch-manipulation select-none cursor-pointer` 与 `router.push('/lobby')`，点按秒开、绝不卡顿。
-- [x] **项 9：GuessWhat 是非之间 20 问功能全量补全**：
-  - **20 问限制与进度条**：增加 `X/20` 可视化动态进度条，20 次用尽时自动锁定提问并给予提示；
-  - **猜词人“认输 / 揭晓答案”**：新增独立认输入口，点击后提前揭晓答案并结束对局；
-  - **出题人“提供线索提示”**：出题人可一键提供字数、首字、类别等线索，作为高亮线索卡展示给对方；
-  - **重新开始与换一批**：顶部栏新增“重新开始”按钮，选题阶段新增“换一批题目”按钮；
-  - **角色互换 Bug 修复**：对称重构主猜身份流转，彻底解决换局后两端互相等待的异常；
-  - **回合结算与大厅返回**：丰富结算统计面板，补充直达主页大厅按钮。
-- [x] **项 10：动态空间底部输入框吸底固定与输入法防冲突**：
-  - 容器设为 `sticky bottom-0 z-20` 并自适应 `env(safe-area-inset-bottom)`；
-  - 输入框聚焦自动触发消息区吸底平滑滚动，结合 `visualViewport` 动态监听，手机软键盘弹起时绝不遮挡输入框或聊天内容。
+## 2. 核心优化 10 项状态 (100% Complete)
+- [x] **项 1：你画我猜 UI 屏幕大小深度适配（Pad 端优化）**：画板独占 8~9 列（`md:col-span-8 lg:col-span-9`）并充满视口全高；竞猜聊天区自适应收紧，消灭底部空白。
+- [x] **项 2：你画我猜超低延迟画笔架构重构**：20ms 微批次聚合（Micro-batching）和 4 笔缓冲发射机制，结合亚像素移动降噪，画笔即画即达。
+- [x] **项 3：两端倒计时绝对同步与重进状态恢复**：挂钟基准校准（Wall-Clock Delta），退出重进动态换算 `120 - elapsed`，双端毫秒对齐。
+- [x] **项 4：角色互换与选题死锁脱困机制（双保险）**：
+  - **自愈重置**：`initOrFetchSession` 自动检测无效旧 ID 并自愈校正；
+  - **等待页主动接管与重置**：在“对方正在挑选题目...”界面新增【换我来画 / 换我出题】与【重置本局状态】按钮，两端任何一方均可一键接管身份或重置会话，彻底打破死锁。
+- [x] **项 5：顶部导航常驻“重新开始”按钮**：各游戏顶部栏常驻 `RotateCcw` 重新开始按钮，一键将当前对局重置为第 1 轮选题状态。
+- [x] **项 6：动态空间发送消息实时秒级直达对方**：Supabase Realtime Broadcast `MOMENTS_NEW_POST` 极速通道，广播与数据库双写，30ms 极速呈现。
+- [x] **项 7：动态空间小红花账本与余额实时更新**：乐观更新本地余额与账本流水，跨设备身份兼容匹配，杜绝账本流水与数量不同步。
+- [x] **项 8：全站所有返回/退出按钮灵敏度根治**：升级为原生 `<button>`，剔除产生手势冲突与延迟的 `Link`，加入 `touch-manipulation select-none cursor-pointer` 与 `router.push('/lobby')`，点按秒开。
+- [x] **项 9：GuessWhat 是非之间 20 问功能全量补全**：20 问限制与进度条、猜词人认输揭晓答案、出题人提供线索提示、重新开始与换一批、角色互换防卡死。
+- [x] **项 10：动态空间底部输入框吸底固定与输入法防冲突**：容器设为 `sticky bottom-0 z-20` 并自适应 `env(safe-area-inset-bottom)`；输入框聚焦吸底平滑滚动，结合 `visualViewport` 动态监听防键盘遮挡。
 
-## 3. 当前系统健康度
-- 核心功能全量测试通过，静态代码打包完成，已全量推送部署至 Netlify 生产环境。
+## 3. 最近修改文件
+- `src/app/draw/page.tsx`（新增 `handleTakeOverPainter`、等待卡片新增接管画师与重置按钮）
+- `src/app/guess/page.tsx`（新增 `handleTakeOverMaster`、等待卡片新增接管出题人与重置按钮）
+- `src/components/Navbar.tsx`（全站返回按钮高灵敏重构）
+- `src/app/moments/page.tsx`（输入框吸底、Realtime 广播双写）
+- `src/components/moments/BadgeLedgerModal.tsx`（小红花跨端 ID 兼容）
+- `src/lib/types/index.ts`（补充 `round_start_time` 属性支持）
+
+## 4. 下一步待办事项 (Next Steps)
+- 推送代码至远程仓库，触发 Netlify 自动部署，并在生产环境中直接操作验证。

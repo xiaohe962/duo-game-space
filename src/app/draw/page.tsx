@@ -167,7 +167,27 @@ export default function DrawPage() {
         .maybeSingle();
 
       if (activeSession) {
-        setSession(activeSession as DrawSession);
+        // 自愈检测：若数据库中的旧画师身份无法匹配任何一端（旧版本残留），自动自愈将画师重置给房主
+        const isRecognizedPainter =
+          activeSession.painter_id === hostId ||
+          activeSession.painter_id === guestId ||
+          activeSession.painter_id.includes('host') ||
+          activeSession.painter_id.includes('guest');
+
+        let sessionObj = activeSession as DrawSession;
+        if (!isRecognizedPainter && activeSession.status === 'word_selection') {
+          sessionObj = {
+            ...sessionObj,
+            painter_id: hostId,
+            guesser_id: guestId,
+          };
+          supabase
+            .from('draw_sessions')
+            .update({ painter_id: hostId, guesser_id: guestId })
+            .eq('id', activeSession.id);
+        }
+
+        setSession(sessionObj);
         const { data: msgList } = await supabase
           .from('draw_messages')
           .select('*')
@@ -684,6 +704,40 @@ export default function DrawPage() {
     }
   };
 
+  // 强制切换画师身份（彻底解决两端互相等待死锁，给用户一键脱困能力）
+  const handleTakeOverPainter = async () => {
+    if (!session || !pairCode) return;
+    const newPainterId = userId;
+    const newGuesserId = isHost ? guestId : hostId;
+    const nextSession: DrawSession = {
+      ...session,
+      status: 'word_selection',
+      painter_id: newPainterId,
+      guesser_id: newGuesserId,
+      word: '',
+      category: '',
+      hint: '',
+    };
+    setSession(nextSession);
+    setCandidateWords(getRandomWords(4));
+    soundEffects.playDing();
+    broadcastState(nextSession, messages, 'DING');
+
+    if (isSupabaseConfigured) {
+      await supabase
+        .from('draw_sessions')
+        .update({
+          status: 'word_selection',
+          painter_id: newPainterId,
+          guesser_id: newGuesserId,
+          word: '',
+          category: '',
+          hint: '',
+        })
+        .eq('id', session.id);
+    }
+  };
+
   // 画师选题
   const handleSelectWord = async (word: WordItem) => {
     if (!session) return;
@@ -1010,16 +1064,40 @@ export default function DrawPage() {
               </div>
             </div>
           ) : (
-            <div className="py-16 text-center space-y-3">
-              <div className="w-12 h-12 mx-auto rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center">
-                <Sparkles className="w-6 h-6" />
+            <div className="py-12 sm:py-16 text-center space-y-4 max-w-sm mx-auto">
+              <div className="w-12 h-12 mx-auto rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shadow-xs">
+                <Sparkles className="w-6 h-6 text-amber-500" />
               </div>
-              <h3 className="text-sm font-bold text-slate-900">
-                {partnerNickname} 正在挑选题目...
-              </h3>
-              <p className="text-xs text-slate-500">
-                作画开始后，请在右侧/下方聊天框输入文字发起竞猜。
-              </p>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  {partnerNickname} 正在挑选题目...
+                </h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  如果两端同时卡在等待状态或你想直接作画，可点击下方按钮切换画师或重置。
+                </p>
+              </div>
+
+              {/* 一键摆脱死锁与强制切换/重置操作区 */}
+              <div className="flex flex-col sm:flex-row gap-2 pt-2 justify-center">
+                <button
+                  type="button"
+                  onClick={handleTakeOverPainter}
+                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation cursor-pointer"
+                  title="由我开始选词作画，立即解除等待"
+                >
+                  <Palette className="w-3.5 h-3.5" />
+                  <span>换我来画 (切换画师)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRestartGame}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-white text-slate-700 font-semibold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation cursor-pointer"
+                  title="重置本局状态"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                  <span>重置本局状态</span>
+                </button>
+              </div>
             </div>
           )}
         </div>

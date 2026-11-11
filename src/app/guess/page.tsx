@@ -120,7 +120,27 @@ export default function GuessPage() {
         .maybeSingle();
 
       if (activeSession) {
-        setSession(activeSession as GuessSession);
+        // 自愈检测：若数据库中的旧出题人身份无法匹配任何一端（旧版本残留），自动自愈将出题人重置给房主
+        const isRecognizedMaster =
+          activeSession.master_id === hostId ||
+          activeSession.master_id === guestId ||
+          activeSession.master_id.includes('host') ||
+          activeSession.master_id.includes('guest');
+
+        let sessionObj = activeSession as GuessSession;
+        if (!isRecognizedMaster && activeSession.status === 'word_selection') {
+          sessionObj = {
+            ...sessionObj,
+            master_id: hostId,
+            guesser_id: guestId,
+          };
+          supabase
+            .from('guess_sessions')
+            .update({ master_id: hostId, guesser_id: guestId })
+            .eq('id', activeSession.id);
+        }
+
+        setSession(sessionObj);
         const { data: qList } = await supabase
           .from('guess_questions')
           .select('*')
@@ -468,6 +488,47 @@ export default function GuessPage() {
     }
   };
 
+  // 抢占/切换为出题人（一键打破双端等待死锁）
+  const handleTakeOverMaster = async () => {
+    if (!pairCode) return;
+    const myMasterId = isHost ? hostId : guestId;
+    const otherGuesserId = isHost ? guestId : hostId;
+    const updatedSession: GuessSession = {
+      ...(session || {
+        id: 'guess_' + Date.now(),
+        pair_code: pairCode,
+        round_number: 1,
+        theme: selectedTheme,
+        secret_word: null,
+        secret_word_category: null,
+        secret_word_note: null,
+        questions_count: 0,
+        wrong_guesses_count: 0,
+        result: null,
+        created_at: new Date().toISOString(),
+        ended_at: null,
+      }),
+      status: 'word_selection',
+      master_id: myMasterId,
+      guesser_id: otherGuesserId,
+    };
+    setSession(updatedSession);
+    setCandidateWords(getRandomWords(4, selectedTheme));
+    soundEffects.playPop();
+    broadcastUpdate(updatedSession, questions, records, 'ding');
+
+    if (isSupabaseConfigured && session?.id) {
+      await supabase
+        .from('guess_sessions')
+        .update({
+          status: 'word_selection',
+          master_id: myMasterId,
+          guesser_id: otherGuesserId,
+        })
+        .eq('id', session.id);
+    }
+  };
+
   const handleStartNewRound = async (swapRoles: boolean) => {
     if (!session || !pairCode) return;
     const lastMasterIsHost =
@@ -676,16 +737,40 @@ export default function GuessPage() {
               </div>
             </div>
           ) : (
-            <div className="py-12 text-center space-y-3">
-              <div className="w-12 h-12 mx-auto rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center">
-                <Sparkles className="w-6 h-6" />
+            <div className="py-12 sm:py-16 text-center space-y-4 max-w-sm mx-auto">
+              <div className="w-12 h-12 mx-auto rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shadow-xs">
+                <Sparkles className="w-6 h-6 text-amber-500" />
               </div>
-              <h2 className="text-base font-bold text-slate-900">
-                {partnerNickname} 正在挑选题目...
-              </h2>
-              <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
-                题目确定后你就可以开始问问题了。
-              </p>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  {partnerNickname} 正在挑选题目...
+                </h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  如果两端同时卡在等待状态或你想直接出题，可点击下方按钮切换出题人或重置。
+                </p>
+              </div>
+
+              {/* 一键摆脱死锁与强制切换/重置操作区 */}
+              <div className="flex flex-col sm:flex-row gap-2 pt-2 justify-center">
+                <button
+                  type="button"
+                  onClick={handleTakeOverMaster}
+                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation cursor-pointer"
+                  title="由我开始选词出题，立即解除等待"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>换我出题 (切换出题人)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRestartGame}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation cursor-pointer"
+                  title="重置当前对局"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                  <span>重置本局状态</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
