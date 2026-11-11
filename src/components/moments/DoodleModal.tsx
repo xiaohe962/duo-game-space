@@ -263,12 +263,12 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
                 </button>
 
                 {showCustomPicker && (
-                  <div className="absolute bottom-8 left-0 z-50 animate-fade-in shadow-2xl">
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/40 backdrop-blur-xs animate-fade-in">
                     <div
-                      className="fixed inset-0 z-40 bg-black/20"
+                      className="fixed inset-0"
                       onClick={() => setShowCustomPicker(false)}
                     />
-                    <div className="relative z-50">
+                    <div className="relative z-10 shadow-2xl max-w-[95vw] max-h-[90vh]">
                       <CustomColorPicker
                         color={customColor}
                         onChange={(newHex) => {
@@ -284,8 +284,30 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
               </div>
             </div>
 
+            {/* 撤销与清空：位于笔画粗细左侧 */}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={handleUndo}
+                className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs flex items-center gap-1 transition-all active:scale-95"
+                title="撤销上一笔"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>撤销</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleClear}
+                className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-600 text-xs flex items-center gap-1 transition-all"
+                title="清空画板"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>清空</span>
+              </button>
+            </div>
+
             {/* 粗细自由滑动调节与实时预览圆点 */}
-            <div className="flex items-center gap-2 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
+            <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
               {/* 实时预览圆点 */}
               <div
                 className="w-5 h-5 rounded-md bg-white border border-slate-200 flex items-center justify-center shrink-0"
@@ -302,7 +324,7 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
               </div>
 
               {/* 自由无级滑动条 (1~40px) */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1">
                 <input
                   type="range"
                   min={1}
@@ -310,7 +332,7 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
                   step={1}
                   value={size}
                   onChange={(e) => setSize(Number(e.target.value))}
-                  className="w-16 sm:w-20 accent-slate-900 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
+                  className="w-14 sm:w-20 accent-slate-900 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
                   title={`调整笔刷粗细: ${size}px`}
                 />
                 <span className="text-[10px] font-mono font-bold text-slate-700 w-6 text-right">
@@ -334,27 +356,8 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
             </div>
           </div>
 
-          {/* 第二排：撤销、清空与确认插入 */}
-          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={handleUndo}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs flex items-center gap-1 transition-all active:scale-95"
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>撤销</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleClear}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-600 text-xs flex items-center gap-1 transition-all"
-              >
-                <Trash2 className="w-3 h-3" />
-                <span>清空</span>
-              </button>
-            </div>
-
+          {/* 第二排：确认插入动态 */}
+          <div className="flex items-center justify-end pt-1 border-t border-slate-100">
             <button
               type="button"
               onClick={handleConfirm}

@@ -415,37 +415,32 @@ export default function GuessPage() {
   }
 
   return (
-    <div className="min-h-dvh max-w-4xl mx-auto px-4 py-4 md:py-6 space-y-4">
-      {/* 顶部对局信息横幅 */}
-      <div className="bg-white rounded-2xl p-4 md:p-5 border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold font-mono text-sm">
-            #{session.round_number}
-          </div>
-          <div>
-            <h1 className="text-sm md:text-base font-bold text-slate-900 flex items-center gap-2">
-              GuessWhat · 第 {session.round_number} 回合
-            </h1>
-            <p className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
-              <span>当前身份：<strong className="text-blue-600 font-semibold">{myRoleName}</strong></span>
-              <span>·</span>
-              <span>主题：<span className="font-semibold text-slate-700">{session.theme || '自由选词'}</span></span>
-            </p>
-          </div>
+    <div className="min-h-dvh max-w-4xl mx-auto px-3 sm:px-4 py-2 sm:py-3 space-y-3">
+      {/* 极简紧凑顶部对局信息条 */}
+      <div className="bg-white rounded-xl px-3 py-1.5 border border-slate-200 shadow-xs flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded-md bg-slate-900 text-white font-mono font-bold text-xs shadow-xs">
+            R{session.round_number}
+          </span>
+          <span className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+            <span className="text-blue-600 font-bold">{myRoleName}</span>
+            <span className="text-slate-300">|</span>
+            <span className="text-slate-500 font-mono text-[11px]">{session.theme || '自由选词'}</span>
+          </span>
         </div>
 
-        {/* 秘密词语 */}
+        {/* 秘密词语胶囊 */}
         <div className="flex items-center gap-2">
           {isMaster || session.status === 'settled' ? (
-            <div className="px-3.5 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-right">
-              <span className="text-[10px] text-slate-400 font-mono block">SECRET WORD</span>
-              <span className="text-xs font-bold text-slate-900 font-mono tracking-wider">
+            <div className="px-2.5 py-0.5 rounded-lg bg-slate-100 border border-slate-200/80 text-right flex items-center gap-1">
+              <span className="text-[10px] text-slate-400 font-mono">答案:</span>
+              <span className="text-xs font-bold text-slate-900 font-mono tracking-wide">
                 {session.secret_word || '选题中...'}
               </span>
             </div>
           ) : (
-            <div className="px-3.5 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-right">
-              <span className="text-[10px] text-slate-400 font-mono block">TARGET</span>
+            <div className="px-2.5 py-0.5 rounded-lg bg-slate-100 border border-slate-200/80 text-right flex items-center gap-1">
+              <span className="text-[10px] text-slate-400 font-mono">目标:</span>
               <span className="text-xs font-bold text-slate-400 font-mono tracking-widest">
                 ? ? ?
               </span>

@@ -18,7 +18,7 @@ export default function RootLayout({
       <body className="antialiased min-h-screen flex flex-col bg-slate-50 text-slate-900">
         <PairAuthProvider>
           <Navbar />
-          <main className="flex-1 pb-20 md:pb-8">
+          <main className="flex-1 pb-4">
             {children}
           </main>
         </PairAuthProvider>
