@@ -76,13 +76,11 @@ export default function DrawPage() {
   const strokeBufferRef = useRef<DrawStrokePayload[]>([]);
   const flushTimerRef = useRef<any>(null);
 
-  // 稳健角色判定（严格支持 pair_{code}_host 与角色互换，消除两端均显示选词等待的 bug）
+  // 稳健角色判定（严格按 host/guest 特征码判定，彻底消除身份互换后两端均卡在选词等待的 bug）
   const isPainter = session
     ? session.painter_id === userId ||
-      (session.painter_id === hostId && isHost) ||
-      (session.painter_id === guestId && !isHost) ||
-      (session.painter_id === 'host' && isHost) ||
-      (session.painter_id === 'guest' && !isHost)
+      (session.painter_id.includes('host') && isHost) ||
+      (session.painter_id.includes('guest') && !isHost)
     : isHost;
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -833,9 +831,8 @@ export default function DrawPage() {
 
     // 严谨计算上一轮画师究竟是房主还是队员
     const lastPainterIsHost =
-      session.painter_id === hostId ||
-      session.painter_id === 'host' ||
-      (!session.painter_id.includes('guest') && session.painter_id === userId ? isHost : false);
+      session.painter_id.includes('host') ||
+      (session.painter_id === userId ? isHost : !isHost);
 
     const nextPainter = swapRoles
       ? (lastPainterIsHost ? guestId : hostId)
@@ -944,7 +941,7 @@ export default function DrawPage() {
             title="重置对局并重新开始"
           >
             <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
-            <span className="hidden sm:inline">重新开始</span>
+            <span className="text-[11px] sm:text-xs">重新开始</span>
           </button>
 
           {session?.status === 'drawing' && (

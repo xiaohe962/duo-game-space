@@ -669,14 +669,13 @@ export default function MomentsPage() {
         console.warn('localStorage write failed:', localErr);
       }
 
-      // 立即通过 Realtime 广播给对方（<30ms 极速直达对方屏幕）
-      if (channelRef.current) {
-        channelRef.current.send({
-          type: 'broadcast',
-          event: 'MOMENTS_NEW_POST',
-          payload: newPost,
-        });
-      }
+      // 立即通过 Realtime 广播给对方（<30ms 极速直达对方屏幕，彻底解决对方收不到消息问题）
+      const targetChannel = channelRef.current || supabase.channel(`moments_chat_${pairCode}`);
+      targetChannel.send({
+        type: 'broadcast',
+        event: 'MOMENTS_NEW_POST',
+        payload: newPost,
+      });
 
       // 清空输入区与待发队列
       setContent('');
@@ -749,24 +748,23 @@ export default function MomentsPage() {
     } catch (_) {}
 
     // 广播状态打卡与新消息
-    if (channelRef.current) {
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'MOMENTS_STATUS_UPDATE',
-        payload: {
-          user_id: userId,
-          pair_code: pairCode,
-          status_icon: icon,
-          status_text: text,
-          updated_at: new Date().toISOString(),
-        },
-      });
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'MOMENTS_NEW_POST',
-        payload: newPost,
-      });
-    }
+    const targetChannel = channelRef.current || supabase.channel(`moments_chat_${pairCode}`);
+    targetChannel.send({
+      type: 'broadcast',
+      event: 'MOMENTS_STATUS_UPDATE',
+      payload: {
+        user_id: userId,
+        pair_code: pairCode,
+        status_icon: icon,
+        status_text: text,
+        updated_at: new Date().toISOString(),
+      },
+    });
+    targetChannel.send({
+      type: 'broadcast',
+      event: 'MOMENTS_NEW_POST',
+      payload: newPost,
+    });
 
     if (isSupabaseConfigured) {
       try {
@@ -850,18 +848,17 @@ export default function MomentsPage() {
     });
 
     // C. 立即通过 WebSocket 广播给对方（同步对方界面的余额与账本流水，杜绝不更新问题）
-    if (channelRef.current) {
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'MOMENTS_BADGE_UPDATE',
-        payload: {
-          receiverId,
-          badgeType,
-          delta,
-          log: newLog,
-        },
-      });
-    }
+    const targetChannel = channelRef.current || supabase.channel(`moments_chat_${pairCode}`);
+    targetChannel.send({
+      type: 'broadcast',
+      event: 'MOMENTS_BADGE_UPDATE',
+      payload: {
+        receiverId,
+        badgeType,
+        delta,
+        log: newLog,
+      },
+    });
 
     // D. 异步同步到 Supabase 数据库
     if (isSupabaseConfigured) {
@@ -921,13 +918,12 @@ export default function MomentsPage() {
 
     if (existing) {
       setReactions((prev) => prev.filter((r) => r.id !== existing.id));
-      if (channelRef.current) {
-        channelRef.current.send({
-          type: 'broadcast',
-          event: 'MOMENTS_REACTION_UPDATE',
-          payload: { action: 'remove', postId, emoji, userId },
-        });
-      }
+      const targetChannel = channelRef.current || supabase.channel(`moments_chat_${pairCode}`);
+      targetChannel.send({
+        type: 'broadcast',
+        event: 'MOMENTS_REACTION_UPDATE',
+        payload: { action: 'remove', postId, emoji, userId },
+      });
       if (isSupabaseConfigured) {
         await supabase.from('post_reactions').delete().eq('id', existing.id);
       }
@@ -943,13 +939,12 @@ export default function MomentsPage() {
       };
       setReactions((prev) => [...prev, newReaction]);
       soundEffects.playDing();
-      if (channelRef.current) {
-        channelRef.current.send({
-          type: 'broadcast',
-          event: 'MOMENTS_REACTION_UPDATE',
-          payload: { action: 'add', postId, emoji, newReaction },
-        });
-      }
+      const targetChannel = channelRef.current || supabase.channel(`moments_chat_${pairCode}`);
+      targetChannel.send({
+        type: 'broadcast',
+        event: 'MOMENTS_REACTION_UPDATE',
+        payload: { action: 'add', postId, emoji, newReaction },
+      });
       if (isSupabaseConfigured) {
         await supabase.from('post_reactions').insert({
           pair_code: pairCode,
@@ -970,13 +965,12 @@ export default function MomentsPage() {
       localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(nextPosts));
     } catch (_) {}
 
-    if (channelRef.current) {
-      channelRef.current.send({
-        type: 'broadcast',
-        event: 'MOMENTS_DELETE_POST',
-        payload: { postId },
-      });
-    }
+    const targetChannel = channelRef.current || supabase.channel(`moments_chat_${pairCode}`);
+    targetChannel.send({
+      type: 'broadcast',
+      event: 'MOMENTS_DELETE_POST',
+      payload: { postId },
+    });
 
     if (isSupabaseConfigured) {
       await supabase.from('couple_posts').delete().eq('id', postId);
@@ -998,11 +992,20 @@ export default function MomentsPage() {
     );
   }
 
-  // 小红花余额统计
-  const myFlowerCount =
-    balances.find((b) => b.user_id === userId && b.badge_type === 'flower')?.count || 0;
-  const partnerFlowerCount =
-    balances.find((b) => b.user_id === partnerUserId && b.badge_type === 'flower')?.count || 0;
+  // 徽章与小红花余额统计（兼容 pair_{code}_host 与 host/guest 标识）
+  const getBadgeCountForUser = (targetUid: string, bType: BadgeType) => {
+    const isTargetHost = targetUid.includes('host') || targetUid === 'host';
+    const targetRole = isTargetHost ? 'host' : 'guest';
+    const item = balances.find(
+      (b) =>
+        b.badge_type === bType &&
+        (b.user_id === targetUid || b.user_id === targetRole || b.user_id.endsWith('_' + targetRole))
+    );
+    return item ? item.count : 0;
+  };
+
+  const myFlowerCount = getBadgeCountForUser(userId, 'flower');
+  const partnerFlowerCount = getBadgeCountForUser(partnerUserId, 'flower');
 
   return (
     <div className="h-[calc(100dvh-50px)] max-w-3xl mx-auto px-2 sm:px-4 py-1.5 flex flex-col justify-between overflow-hidden">
@@ -1024,7 +1027,7 @@ export default function MomentsPage() {
 
           {(['star', 'coffee', 'hug'] as BadgeType[]).map((bType) => {
             const cfg = BADGE_CONFIG[bType];
-            const cnt = balances.find((b) => b.user_id === userId && b.badge_type === bType)?.count || 0;
+            const cnt = getBadgeCountForUser(userId, bType);
             return (
               <button
                 key={bType}
