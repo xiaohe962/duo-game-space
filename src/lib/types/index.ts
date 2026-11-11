@@ -32,7 +32,7 @@ export interface CouplePost {
   author_nickname: string;
   content: string;
   image_url?: string | null;
-  mood: string;
+  mood?: string | null;
   parent_id?: string | null;
   post_type?: PostType;
   created_at: string;

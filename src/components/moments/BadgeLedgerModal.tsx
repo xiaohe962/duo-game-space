@@ -75,7 +75,8 @@ export default function BadgeLedgerModal({
   const [tab, setTab] = useState<'balances' | 'logs' | 'adjust'>('balances');
   const [selectedTarget, setSelectedTarget] = useState<'partner' | 'self'>('partner');
   const [selectedBadge, setSelectedBadge] = useState<BadgeType>('flower');
-  const [delta, setDelta] = useState<number>(1);
+  const [amount, setAmount] = useState<number>(1);
+  const [direction, setDirection] = useState<1 | -1>(1); // +1 奖励 或 -1 扣除
   const [reason, setReason] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -89,7 +90,8 @@ export default function BadgeLedgerModal({
 
   const handleAdjustSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reason.trim()) return;
+    const finalDelta = direction * Math.max(1, amount || 1);
+    const finalReason = reason.trim() || (direction > 0 ? '暖心鼓励奖励' : '日常小惩打卡');
 
     setSubmitting(true);
     const receiverId = selectedTarget === 'partner' ? partnerUserId : userId;
@@ -100,8 +102,8 @@ export default function BadgeLedgerModal({
         receiverId,
         receiverNick,
         selectedBadge,
-        delta,
-        reason.trim(),
+        finalDelta,
+        finalReason,
         prefilledPostId || undefined
       );
 
@@ -112,6 +114,8 @@ export default function BadgeLedgerModal({
       }
 
       setReason('');
+      setAmount(1);
+      setDirection(1);
       setTab('logs');
     } catch (err) {
       console.error('更新徽章失败:', err);
@@ -362,36 +366,63 @@ export default function BadgeLedgerModal({
                 </div>
               </div>
 
-              {/* 数量增减快捷档位 */}
+              {/* 数量增减：仅保留 +1 和 -1 两个按钮，支持手动输入数字（默认为 1） */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  3. 增减数量
+                  3. 增减变动数量
                 </label>
-                <div className="flex items-center gap-1.5">
-                  {[1, 3, 5, -1, -2].map((num) => (
+                <div className="flex items-center gap-2">
+                  {/* 方向与快捷按钮：+1 (增加) 和 -1 (扣除) */}
+                  <div className="flex items-center gap-1.5 flex-1">
                     <button
                       type="button"
-                      key={num}
-                      onClick={() => setDelta(num)}
-                      className={`flex-1 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all ${
-                        delta === num
-                          ? num > 0
-                            ? 'bg-emerald-600 border-emerald-600 text-white'
-                            : 'bg-rose-600 border-rose-600 text-white'
+                      onClick={() => setDirection(1)}
+                      className={`flex-1 py-2 rounded-xl text-xs font-mono font-bold border transition-all flex items-center justify-center gap-1 ${
+                        direction === 1
+                          ? 'bg-emerald-600 border-emerald-600 text-white shadow-xs'
                           : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-white'
                       }`}
                     >
-                      {num > 0 ? `+${num}` : num}
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+1 奖励</span>
                     </button>
-                  ))}
+                    <button
+                      type="button"
+                      onClick={() => setDirection(-1)}
+                      className={`flex-1 py-2 rounded-xl text-xs font-mono font-bold border transition-all flex items-center justify-center gap-1 ${
+                        direction === -1
+                          ? 'bg-rose-600 border-rose-600 text-white shadow-xs'
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-white'
+                      }`}
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                      <span>-1 扣除</span>
+                    </button>
+                  </div>
+
+                  {/* 手动输入数字输入框（默认 1） */}
+                  <div className="flex items-center gap-1 shrink-0 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200">
+                    <span className="text-[11px] font-medium text-slate-400">数量:</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={999}
+                      value={amount}
+                      onChange={(e) => setAmount(Math.max(1, parseInt(e.target.value) || 1))}
+                      className="w-12 text-center font-mono font-bold text-xs bg-white border border-slate-200 rounded-md py-1 focus:outline-none focus:ring-1 focus:ring-slate-900"
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* 理由说明 */}
+              {/* 理由说明 (非必填) */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  4. 填写奖惩理由 (必填)
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-semibold text-slate-700">
+                    4. 填写奖惩理由 (选填)
+                  </label>
+                  <span className="text-[10px] text-slate-400">不填默认日常互动</span>
+                </div>
                 <input
                   type="text"
                   placeholder="例如：做了好吃的早饭 / 熬夜打屁股 / 陪我聊天..."
@@ -399,17 +430,20 @@ export default function BadgeLedgerModal({
                   onChange={(e) => setReason(e.target.value)}
                   maxLength={50}
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-slate-900 bg-slate-50"
-                  required
                 />
               </div>
 
               <button
                 type="submit"
-                disabled={submitting || !reason.trim()}
-                className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-bold shadow-md transition-all flex items-center justify-center gap-1.5"
+                disabled={submitting}
+                className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-bold shadow-md transition-all flex items-center justify-center gap-1.5 active:scale-98"
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>{submitting ? '正在入账...' : '确认记录并入账'}</span>
+                <span>
+                  {submitting
+                    ? '正在入账...'
+                    : `确认${direction > 0 ? '奖励' : '扣除'} ${amount} 朵${BADGE_CONFIG[selectedBadge].name}`}
+                </span>
               </button>
             </form>
           )}

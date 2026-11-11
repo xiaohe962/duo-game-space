@@ -16,68 +16,91 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import { soundEffects } from '@/lib/audio/sound';
 import confetti from 'canvas-confetti';
 import {
-  Activity,
   Send,
   Image as ImageIcon,
-  Clock,
   Trash2,
-  Radio,
-  UserCheck,
   Award,
-  Sparkles,
   MessageSquareReply,
   X,
   Palette,
+  Sparkles,
+  Smile,
   ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
 import BadgeLedgerModal, { BADGE_CONFIG } from '@/components/moments/BadgeLedgerModal';
 import DoodleModal from '@/components/moments/DoodleModal';
 import ReactionCapsules from '@/components/moments/ReactionCapsules';
 import QuickStatusBar from '@/components/moments/QuickStatusBar';
 
-function formatRelativeTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHour = Math.floor(diffMin / 60);
-
-  if (diffSec < 60) return '刚刚';
-  if (diffMin < 60) return `${diffMin}m 前`;
-  if (diffHour < 24) return `${diffHour}h 前`;
-  if (diffHour < 48) {
-    const hours = String(date.getHours()).padStart(2, '0');
-    const mins = String(date.getMinutes()).padStart(2, '0');
-    return `昨天 ${hours}:${mins}`;
+// 解析支持单图、多图 JSON 数组或分隔符格式
+function parseImages(imageUrl: string | null | undefined): string[] {
+  if (!imageUrl) return [];
+  if (imageUrl.startsWith('[')) {
+    try {
+      const arr = JSON.parse(imageUrl);
+      if (Array.isArray(arr)) return arr;
+    } catch (_) {}
   }
-  return date.toLocaleDateString('zh-CN', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  if (imageUrl.includes('||')) {
+    return imageUrl.split('||').filter(Boolean);
+  }
+  return [imageUrl];
 }
 
-const MOODS = ['📌', '🎮', '☕', '💡', '🚀', '✨', '⚡', '🌙'];
+// 友好时间格式
+function formatChatTime(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const isToday =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+
+  if (isToday) {
+    return `${hours}:${minutes}`;
+  }
+  return `${d.getMonth() + 1}/${d.getDate()} ${hours}:${minutes}`;
+}
+
+// 检查是否为有效 UUID
+function isValidUuid(str: string | null | undefined): boolean {
+  if (!str) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
+const MOOD_OPTIONS = [
+  { emoji: '', label: '无心情' },
+  { emoji: '📌', label: '置顶' },
+  { emoji: '🎮', label: '开黑' },
+  { emoji: '☕', label: '咖啡' },
+  { emoji: '💡', label: '灵感' },
+  { emoji: '🚀', label: '冲呀' },
+  { emoji: '✨', label: '开心' },
+  { emoji: '🌙', label: '晚安' },
+  { emoji: '🥰', label: '贴贴' },
+  { emoji: '🥺', label: '委屈' },
+];
 
 export default function MomentsPage() {
   const router = useRouter();
   const { pairCode, userId, role, nickname, partnerNickname, isLoading } = usePairAuth();
 
-  // 数据集合
+  // 数据集合（持久化缓存优先）
   const [posts, setPosts] = useState<CouplePost[]>([]);
   const [balances, setBalances] = useState<BadgeBalance[]>([]);
   const [badgeLogs, setBadgeLogs] = useState<BadgeLog[]>([]);
   const [reactions, setReactions] = useState<PostReaction[]>([]);
   const [partnerStatus, setPartnerStatus] = useState<UserStatus | null>(null);
 
-  // 输入表单状态
+  // 底部输入表单状态
   const [content, setContent] = useState('');
-  const [attachedImage, setAttachedImage] = useState<string | null>(null);
-  const [isDoodle, setIsDoodle] = useState(false);
-  const [selectedMood, setSelectedMood] = useState('📌');
+  const [attachedImages, setAttachedImages] = useState<string[]>([]); // 多图与涂鸦并存
+  const [selectedMood, setSelectedMood] = useState<string | null>(null); // 允许空心情
+  const [showMoodMenu, setShowMoodMenu] = useState(false);
+  const [showQuickStatus, setShowQuickStatus] = useState(false);
   const [replyingTo, setReplyingTo] = useState<CouplePost | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -86,58 +109,91 @@ export default function MomentsPage() {
   const [showBadgeLedger, setShowBadgeLedger] = useState(false);
   const [prefilledPostId, setPrefilledPostId] = useState<string | null>(null);
   const [showDoodleModal, setShowDoodleModal] = useState(false);
-  const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
 
   const partnerUserId = pairCode ? `pair_${pairCode}_${role === 'host' ? 'guest' : 'host'}` : '';
+
+  // 0. 本地持久化缓存快速秒开（修复重新进入记录丢失问题）
+  useEffect(() => {
+    if (!pairCode) return;
+    try {
+      const savedPosts = localStorage.getItem(`duo_moments_posts_${pairCode}`);
+      if (savedPosts) {
+        const parsed = JSON.parse(savedPosts);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setPosts(parsed);
+          setLoading(false);
+        }
+      }
+      const savedBalances = localStorage.getItem(`duo_moments_balances_${pairCode}`);
+      if (savedBalances) {
+        setBalances(JSON.parse(savedBalances));
+      }
+    } catch (e) {
+      console.warn('读取本地缓存失败:', e);
+    }
+  }, [pairCode]);
 
   useEffect(() => {
     if (!isLoading && !pairCode) router.replace('/');
   }, [isLoading, pairCode, router]);
 
-  // 1. 初始化拉取全量数据
+  // 1. 初始化拉取并与 Supabase 同步更新
   const fetchAllData = useCallback(async () => {
     if (!pairCode) return;
 
     if (!isSupabaseConfigured) {
-      // 本地演示备用数据
-      setPosts([
-        {
+      // 演示备用数据
+      if (posts.length === 0) {
+        const initialMock: CouplePost = {
           id: 'mock-1',
           pair_code: pairCode,
-          author_id: `pair_${pairCode}_host`,
-          author_nickname: role === 'host' ? nickname : partnerNickname,
-          content: '双人专属空间已建立。小红花账本与实时互动流已全量上线！',
-          mood: '🚀',
+          author_id: partnerUserId || 'partner_user',
+          author_nickname: partnerNickname || 'TA',
+          content: '欢迎来到我们的专属聊天与动态空间！这里支持文字、截图直传、即兴涂鸦与小红花互动。',
+          mood: '✨',
           post_type: 'normal',
-          created_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
-        },
-      ]);
-      setBalances([
-        { pair_code: pairCode, user_id: userId, badge_type: 'flower', count: 5, updated_at: new Date().toISOString() },
-        { pair_code: pairCode, user_id: partnerUserId, badge_type: 'flower', count: 3, updated_at: new Date().toISOString() },
-      ]);
+          created_at: new Date().toISOString(),
+        };
+        setPosts([initialMock]);
+        try {
+          localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify([initialMock]));
+        } catch (_) {}
+      }
       setLoading(false);
       return;
     }
 
     try {
-      // 动态列表
+      // 按时间正序拉取对话记录（旧的在上，新的在下）
       const { data: postsData } = await supabase
         .from('couple_posts')
         .select('*')
         .eq('pair_code', pairCode)
-        .order('created_at', { ascending: false });
-      if (postsData) setPosts(postsData as CouplePost[]);
+        .order('created_at', { ascending: true });
 
-      // 徽章余额与明细
+      if (postsData && postsData.length > 0) {
+        setPosts(postsData as CouplePost[]);
+        try {
+          localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(postsData));
+        } catch (_) {}
+      }
+
+      // 徽章与资产
       const { data: balanceData } = await supabase
         .from('badge_balances')
         .select('*')
         .eq('pair_code', pairCode);
-      if (balanceData) setBalances(balanceData as BadgeBalance[]);
+      if (balanceData) {
+        setBalances(balanceData as BadgeBalance[]);
+        try {
+          localStorage.setItem(`duo_moments_balances_${pairCode}`, JSON.stringify(balanceData));
+        } catch (_) {}
+      }
 
       const { data: logsData } = await supabase
         .from('badge_logs')
@@ -147,7 +203,7 @@ export default function MomentsPage() {
         .limit(50);
       if (logsData) setBadgeLogs(logsData as BadgeLog[]);
 
-      // 表情表态
+      // 表态
       const { data: reactionData } = await supabase
         .from('post_reactions')
         .select('*')
@@ -166,19 +222,32 @@ export default function MomentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [pairCode, role, nickname, partnerNickname, userId, partnerUserId]);
+  }, [pairCode, partnerUserId, partnerNickname, posts.length]);
 
   useEffect(() => {
     fetchAllData();
   }, [fetchAllData]);
 
-  // 2. 建立统一的 Realtime Postgres Changes 监听流
+  // 2. 聊天消息自动吸底
+  const scrollToBottom = useCallback((smooth = true) => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTo({
+        top: chatScrollRef.current.scrollHeight,
+        behavior: smooth ? 'smooth' : 'auto',
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom(false);
+  }, [posts.length, scrollToBottom]);
+
+  // 3. Supabase Realtime 订阅
   useEffect(() => {
     if (!pairCode || !isSupabaseConfigured) return;
 
     const channel = supabase
-      .channel(`moments_unified_${pairCode}`)
-      // 监听动态插入与删除
+      .channel(`moments_chat_${pairCode}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'couple_posts', filter: `pair_code=eq.${pairCode}` },
@@ -186,22 +255,31 @@ export default function MomentsPage() {
           if (payload.eventType === 'INSERT' && payload.new) {
             setPosts((prev) => {
               if (prev.some((p) => p.id === payload.new.id)) return prev;
-              return [payload.new as CouplePost, ...prev];
+              const next = [...prev, payload.new as CouplePost];
+              try {
+                localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(next));
+              } catch (_) {}
+              return next;
             });
             soundEffects.playPop();
           } else if (payload.eventType === 'DELETE' && payload.old) {
-            setPosts((prev) => prev.filter((p) => p.id !== payload.old.id));
+            setPosts((prev) => {
+              const next = prev.filter((p) => p.id !== payload.old.id);
+              try {
+                localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(next));
+              } catch (_) {}
+              return next;
+            });
           }
         }
       )
-      // 监听徽章余额变动
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'badge_balances', filter: `pair_code=eq.${pairCode}` },
         (payload) => {
           if (payload.new) {
-            const updated = payload.new as BadgeBalance;
             setBalances((prev) => {
+              const updated = payload.new as BadgeBalance;
               const idx = prev.findIndex(
                 (b) => b.user_id === updated.user_id && b.badge_type === updated.badge_type
               );
@@ -215,50 +293,25 @@ export default function MomentsPage() {
           }
         }
       )
-      // 监听徽章流水日志
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'badge_logs', filter: `pair_code=eq.${pairCode}` },
-        (payload) => {
-          if (payload.new) {
-            const newLog = payload.new as BadgeLog;
-            setBadgeLogs((prev) => [newLog, ...prev]);
-            // 如果接收者是自己，触发撒花动效与振动
-            if (newLog.receiver_id === userId) {
-              confetti({ particleCount: 80, spread: 80, origin: { y: 0.6 } });
-              if (typeof navigator !== 'undefined' && navigator.vibrate) {
-                navigator.vibrate([40, 60, 40]);
-              }
-            }
-          }
-        }
-      )
-      // 监听表情表态
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'post_reactions', filter: `pair_code=eq.${pairCode}` },
-        (payload) => {
-          if (payload.eventType === 'INSERT' && payload.new) {
-            setReactions((prev) => {
-              if (prev.some((r) => r.id === payload.new.id)) return prev;
-              return [...prev, payload.new as PostReaction];
+        () => {
+          supabase
+            .from('post_reactions')
+            .select('*')
+            .eq('pair_code', pairCode)
+            .then(({ data }) => {
+              if (data) setReactions(data as PostReaction[]);
             });
-            soundEffects.playDing();
-          } else if (payload.eventType === 'DELETE' && payload.old) {
-            setReactions((prev) => prev.filter((r) => r.id !== payload.old.id));
-          }
         }
       )
-      // 监听状态打卡更新
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'user_status', filter: `pair_code=eq.${pairCode}` },
         (payload) => {
-          if (payload.new) {
-            const st = payload.new as UserStatus;
-            if (st.user_id === partnerUserId) {
-              setPartnerStatus(st);
-            }
+          if (payload.new && (payload.new as UserStatus).user_id === partnerUserId) {
+            setPartnerStatus(payload.new as UserStatus);
           }
         }
       )
@@ -267,19 +320,24 @@ export default function MomentsPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [pairCode, userId, partnerUserId]);
+  }, [pairCode, partnerUserId]);
 
-  // 3. 处理本地图片上传与剪贴板粘贴
-  const handleImageFile = (file: File) => {
-    if (!file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      if (e.target?.result) {
-        setAttachedImage(e.target.result as string);
-        setIsDoodle(false);
-      }
-    };
-    reader.readAsDataURL(file);
+  // 4. 多文件与剪贴板选图处理
+  const handleFilesSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        if (evt.target?.result) {
+          setAttachedImages((prev) => [...prev, evt.target!.result as string]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -287,93 +345,121 @@ export default function MomentsPage() {
     if (!items) return;
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.startsWith('image/')) {
+        e.preventDefault();
         const file = items[i].getAsFile();
         if (file) {
-          e.preventDefault();
-          handleImageFile(file);
-          break;
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            if (evt.target?.result) {
+              setAttachedImages((prev) => [...prev, evt.target!.result as string]);
+            }
+          };
+          reader.readAsDataURL(file);
         }
       }
     }
   };
 
-  // 4. 发布动态（支持图片、手绘涂鸦便签、楼中楼引用）
-  const handlePublish = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if ((!content.trim() && !attachedImage) || !pairCode) return;
+  // 5. 发送聊天消息（支持多图 + 手绘涂鸦并发发送，持久化双写）
+  const handleSendMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!content.trim() && attachedImages.length === 0) return;
+    if (!pairCode) return;
 
     setSubmitting(true);
-    let finalImageUrl = attachedImage;
+    const imagesToUpload = [...attachedImages];
+    const uploadedUrls: string[] = [];
 
-    // 尝试上传至 Supabase Storage，遇未配置时无损降级为 Base64
-    if (attachedImage && isSupabaseConfigured) {
-      try {
-        const fileName = `${pairCode}/${Date.now()}_${Math.random().toString(36).substring(7)}.png`;
-        const res = await fetch(attachedImage);
-        const blob = await res.blob();
-        const { data: uploadData, error: uploadErr } = await supabase.storage
-          .from('chat-media')
-          .upload(fileName, blob, { contentType: 'image/png' });
-
-        if (!uploadErr && uploadData) {
-          const { data: publicUrlData } = supabase.storage
+    // 上传图片（遇未配置 Storage 时自动降级为 DataURL 本地存储）
+    for (const img of imagesToUpload) {
+      if (img.startsWith('data:') && isSupabaseConfigured) {
+        try {
+          const fileName = `${pairCode}/${Date.now()}_${Math.random().toString(36).substring(7)}.png`;
+          const blob = await (await fetch(img)).blob();
+          const { data: uploadData, error: uploadErr } = await supabase.storage
             .from('chat-media')
-            .getPublicUrl(fileName);
-          if (publicUrlData?.publicUrl) {
-            finalImageUrl = publicUrlData.publicUrl;
+            .upload(fileName, blob, { contentType: 'image/png' });
+
+          if (!uploadErr && uploadData) {
+            const { data: pubData } = supabase.storage.from('chat-media').getPublicUrl(fileName);
+            if (pubData?.publicUrl) {
+              uploadedUrls.push(pubData.publicUrl);
+              continue;
+            }
           }
-        }
-      } catch (err) {
-        console.warn('Storage 存储降级至 DataURL:', err);
+        } catch (_) {}
       }
+      uploadedUrls.push(img);
     }
 
-    const postType: PostType = isDoodle ? 'doodle' : 'normal';
+    // 格式化图片存储字段：单张存 URL，多张存 JSON 数组
+    let finalImageUrl: string | null = null;
+    if (uploadedUrls.length === 1) {
+      finalImageUrl = uploadedUrls[0];
+    } else if (uploadedUrls.length > 1) {
+      finalImageUrl = JSON.stringify(uploadedUrls);
+    }
+
+    const newId =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : 'p_' + Date.now();
+
+    const parentPostId = replyingTo && isValidUuid(replyingTo.id) ? replyingTo.id : null;
+
     const newPost: CouplePost = {
-      id: 'post_' + Date.now(),
+      id: newId,
       pair_code: pairCode,
       author_id: userId,
       author_nickname: nickname,
       content: content.trim(),
       image_url: finalImageUrl,
-      mood: selectedMood,
-      parent_id: replyingTo?.id || null,
-      post_type: postType,
+      mood: selectedMood || null,
+      parent_id: parentPostId,
+      post_type: 'normal',
       created_at: new Date().toISOString(),
     };
 
-    setPosts((prev) => [newPost, ...prev]);
+    // 立即更新本地状态并保存至 localStorage
+    const nextPosts = [...posts, newPost];
+    setPosts(nextPosts);
+    try {
+      localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(nextPosts));
+    } catch (_) {}
+
+    // 清空输入区
     setContent('');
-    setAttachedImage(null);
-    setIsDoodle(false);
+    setAttachedImages([]);
     setReplyingTo(null);
+    setShowMoodMenu(false);
     setSubmitting(false);
     soundEffects.playPop();
 
+    // 同步到 Supabase
     if (isSupabaseConfigured) {
       try {
         await supabase.from('couple_posts').insert({
+          id: newId,
           pair_code: pairCode,
           author_id: userId,
           author_nickname: nickname,
           content: newPost.content,
           image_url: newPost.image_url,
-          mood: newPost.mood,
-          parent_id: newPost.parent_id,
+          mood: newPost.mood || null,
+          parent_id: parentPostId,
           post_type: newPost.post_type,
         });
-      } catch (e) {
-        console.error('发布动态失败:', e);
+      } catch (err) {
+        console.error('上传动态失败:', err);
       }
     }
   };
 
-  // 5. 快捷状态打卡
+  // 6. 快捷状态打卡
   const handleSelectQuickStatus = async (icon: string, text: string) => {
     if (!pairCode) return;
-    const statusPostContent = `打卡了实时状态：${icon} ${text}`;
+    const statusPostContent = `打卡状态：${icon} ${text}`;
 
-    // 更新本地与远端 user_status
     if (isSupabaseConfigured) {
       try {
         await supabase.from('user_status').upsert({
@@ -383,9 +469,35 @@ export default function MomentsPage() {
           status_text: text,
           updated_at: new Date().toISOString(),
         });
+      } catch (_) {}
+    }
 
-        // 自动落一条 post_type = 'status' 的卡片入信息流
+    const newId =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : 'p_' + Date.now();
+
+    const newPost: CouplePost = {
+      id: newId,
+      pair_code: pairCode,
+      author_id: userId,
+      author_nickname: nickname,
+      content: statusPostContent,
+      mood: icon,
+      post_type: 'status',
+      created_at: new Date().toISOString(),
+    };
+
+    const nextPosts = [...posts, newPost];
+    setPosts(nextPosts);
+    try {
+      localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(nextPosts));
+    } catch (_) {}
+
+    if (isSupabaseConfigured) {
+      try {
         await supabase.from('couple_posts').insert({
+          id: newId,
           pair_code: pairCode,
           author_id: userId,
           author_nickname: nickname,
@@ -393,28 +505,15 @@ export default function MomentsPage() {
           mood: icon,
           post_type: 'status',
         });
-      } catch (err) {
-        console.error('状态打卡失败:', err);
-      }
-    } else {
-      const mockStatusPost: CouplePost = {
-        id: 'post_' + Date.now(),
-        pair_code: pairCode,
-        author_id: userId,
-        author_nickname: nickname,
-        content: statusPostContent,
-        mood: icon,
-        post_type: 'status',
-        created_at: new Date().toISOString(),
-      };
-      setPosts((prev) => [mockStatusPost, ...prev]);
+      } catch (_) {}
     }
 
     soundEffects.playDing();
+    setShowQuickStatus(false);
     confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 } });
   };
 
-  // 6. 徽章奖惩入账
+  // 7. 徽章增减入账
   const handleAddBadge = async (
     receiverId: string,
     receiverNickname: string,
@@ -427,7 +526,25 @@ export default function MomentsPage() {
 
     if (isSupabaseConfigured) {
       try {
-        // 记录流水
+        const { data: currentRecord } = await supabase
+          .from('badge_balances')
+          .select('count')
+          .eq('pair_code', pairCode)
+          .eq('user_id', receiverId)
+          .eq('badge_type', badgeType)
+          .maybeSingle();
+
+        const currentCount = currentRecord?.count || 0;
+        const nextCount = Math.max(0, currentCount + delta);
+
+        await supabase.from('badge_balances').upsert({
+          pair_code: pairCode,
+          user_id: receiverId,
+          badge_type: badgeType,
+          count: nextCount,
+          updated_at: new Date().toISOString(),
+        });
+
         await supabase.from('badge_logs').insert({
           pair_code: pairCode,
           sender_id: userId,
@@ -437,40 +554,14 @@ export default function MomentsPage() {
           badge_type: badgeType,
           delta,
           reason: reasonText,
-          post_id: postId || null,
+          post_id: isValidUuid(postId) ? postId : null,
         });
 
-        // 更新余额表
-        const existing = balances.find((b) => b.user_id === receiverId && b.badge_type === badgeType);
-        const newCount = Math.max(0, (existing ? existing.count : 0) + delta);
-        await supabase.from('badge_balances').upsert({
-          pair_code: pairCode,
-          user_id: receiverId,
-          badge_type: badgeType,
-          count: newCount,
-          updated_at: new Date().toISOString(),
-        });
-
-        // 同步生成一条徽章奖励专属动态
-        const badgeCfg = BADGE_CONFIG[badgeType];
-        const rewardMsg = `${delta > 0 ? '✨ 奖励了' : '⚠️ 扣除了'} @${receiverNickname} ${
-          delta > 0 ? '+' + delta : delta
-        } 个 ${badgeCfg.emoji} ${badgeCfg.name}！理由：${reasonText}`;
-
-        await supabase.from('couple_posts').insert({
-          pair_code: pairCode,
-          author_id: userId,
-          author_nickname: nickname,
-          content: rewardMsg,
-          mood: badgeCfg.emoji,
-          post_type: 'badge_reward',
-          parent_id: postId || null,
-        });
+        fetchAllData();
       } catch (err) {
         console.error('增加徽章失败:', err);
       }
     } else {
-      // 纯本地兜底更新
       setBalances((prev) => {
         const idx = prev.findIndex((b) => b.user_id === receiverId && b.badge_type === badgeType);
         if (idx >= 0) {
@@ -480,13 +571,19 @@ export default function MomentsPage() {
         }
         return [
           ...prev,
-          { pair_code: pairCode, user_id: receiverId, badge_type: badgeType, count: delta, updated_at: new Date().toISOString() },
+          {
+            pair_code: pairCode,
+            user_id: receiverId,
+            badge_type: badgeType,
+            count: delta,
+            updated_at: new Date().toISOString(),
+          },
         ];
       });
     }
   };
 
-  // 7. 行内表情表态切换
+  // 8. 贴纸表态切换
   const handleToggleReaction = async (postId: string, emoji: string) => {
     if (!pairCode) return;
     const existing = reactions.find(
@@ -494,13 +591,11 @@ export default function MomentsPage() {
     );
 
     if (existing) {
-      // 取消表态
       setReactions((prev) => prev.filter((r) => r.id !== existing.id));
       if (isSupabaseConfigured) {
         await supabase.from('post_reactions').delete().eq('id', existing.id);
       }
     } else {
-      // 新增表态
       const newReaction: PostReaction = {
         id: 'react_' + Date.now(),
         pair_code: pairCode,
@@ -524,15 +619,20 @@ export default function MomentsPage() {
     }
   };
 
-  // 8. 删除动态
+  // 9. 删除消息
   const handleDeletePost = async (postId: string) => {
-    setPosts((prev) => prev.filter((p) => p.id !== postId));
+    const nextPosts = posts.filter((p) => p.id !== postId);
+    setPosts(nextPosts);
+    try {
+      localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(nextPosts));
+    } catch (_) {}
+
     if (isSupabaseConfigured) {
       await supabase.from('couple_posts').delete().eq('id', postId);
     }
   };
 
-  // 9. 开启引用回复
+  // 10. 引用回复
   const handleStartReply = (post: CouplePost) => {
     setReplyingTo(post);
     textareaRef.current?.focus();
@@ -547,35 +647,26 @@ export default function MomentsPage() {
     );
   }
 
-  // 区分主动态与楼中楼回复
-  const topLevelPosts = posts.filter((p) => !p.parent_id);
-  const repliesByParentId = posts.reduce<Record<string, CouplePost[]>>((acc, p) => {
-    if (p.parent_id) {
-      if (!acc[p.parent_id]) acc[p.parent_id] = [];
-      acc[p.parent_id].push(p);
-    }
-    return acc;
-  }, {});
-
-  // 计算小红花汇总
-  const myFlowerCount = balances.find((b) => b.user_id === userId && b.badge_type === 'flower')?.count || 0;
-  const partnerFlowerCount = balances.find((b) => b.user_id === partnerUserId && b.badge_type === 'flower')?.count || 0;
+  // 小红花余额统计
+  const myFlowerCount =
+    balances.find((b) => b.user_id === userId && b.badge_type === 'flower')?.count || 0;
+  const partnerFlowerCount =
+    balances.find((b) => b.user_id === partnerUserId && b.badge_type === 'flower')?.count || 0;
 
   return (
-    <div className="min-h-dvh max-w-3xl mx-auto px-3 sm:px-4 py-2 sm:py-3 space-y-3">
-      {/* 顶部极简徽章看板与状态条（大幅压缩深色面积，去除冗余描述） */}
-      <div className="bg-slate-900 rounded-xl px-3 py-2 text-white border border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-2">
-        {/* 徽章快速看板 */}
+    <div className="h-[calc(100dvh-50px)] max-w-3xl mx-auto px-2 sm:px-4 py-1.5 flex flex-col justify-between overflow-hidden">
+      {/* 顶部紧凑看板：徽章条与对方状态 */}
+      <div className="bg-slate-900 rounded-xl px-3 py-1.5 text-white border border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-2 shrink-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             onClick={() => {
               setPrefilledPostId(null);
               setShowBadgeLedger(true);
             }}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-slate-800 border border-slate-700 hover:border-rose-500/50 text-xs transition-all shadow-xs group"
+            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-rose-500/50 text-xs transition-all shadow-xs group"
           >
             <Award className="w-3.5 h-3.5 text-rose-400 group-hover:scale-110 transition-transform" />
-            <span className="font-semibold text-rose-300">🌸 红花: {myFlowerCount}</span>
+            <span className="font-semibold text-rose-300">🌸 我的红花: {myFlowerCount}</span>
             <span className="text-slate-500 font-mono text-[10px]">|</span>
             <span className="text-slate-300">TA: {partnerFlowerCount}</span>
           </button>
@@ -597,7 +688,7 @@ export default function MomentsPage() {
         </div>
 
         {/* 对方实时状态 */}
-        <div className="text-[11px] font-mono text-slate-300 flex items-center gap-1.5 bg-slate-800 px-2 py-1 rounded-lg border border-slate-700">
+        <div className="text-[11px] font-mono text-slate-300 flex items-center gap-1.5 bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-700">
           <span className="text-slate-400">{partnerNickname}:</span>
           {partnerStatus ? (
             <span className="text-blue-300 font-semibold flex items-center gap-1">
@@ -610,374 +701,359 @@ export default function MomentsPage() {
         </div>
       </div>
 
-      {/* 发表动态区域卡片 */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3">
-        {/* 专属快捷状态打卡条 */}
-        <QuickStatusBar onSelectStatus={handleSelectQuickStatus} disabled={submitting} />
-
-        <form onSubmit={handlePublish} className="space-y-3">
-          {/* 引用回复指示浮层 */}
-          {replyingTo && (
-            <div className="flex items-center justify-between p-2 px-3 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-900 animate-fade-in font-mono">
-              <div className="flex items-center gap-1.5 truncate">
-                <MessageSquareReply className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                <span className="truncate">
-                  正在回复 <strong>@{replyingTo.author_nickname}</strong>: &ldquo;{replyingTo.content.slice(0, 32)}&rdquo;
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReplyingTo(null)}
-                className="p-1 hover:bg-blue-100 rounded text-blue-600 shrink-0"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-
-          {/* 动态心情标签 */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-600 font-mono">MOOD:</span>
-            <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
-              {MOODS.map((emoji) => (
-                <button
-                  type="button"
-                  key={emoji}
-                  onClick={() => setSelectedMood(emoji)}
-                  className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs transition-transform ${
-                    selectedMood === emoji
-                      ? 'bg-slate-900 text-white scale-110 shadow-sm'
-                      : 'hover:bg-slate-100 text-slate-600'
-                  }`}
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 文本输入框（带剪贴板图片粘贴拦截监听） */}
-          <textarea
-            ref={textareaRef}
-            placeholder={`在此写下动态、想法或截图直接 Ctrl+V 粘贴分享给 ${partnerNickname}...`}
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            onPaste={handlePaste}
-            rows={3}
-            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-slate-900 bg-slate-50 resize-none"
-          />
-
-          {/* 图片 / 涂鸦预览缩略图卡片 */}
-          {attachedImage && (
-            <div className="relative inline-block animate-fade-in">
-              <div className="p-1 bg-slate-100 rounded-xl border border-slate-200">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={attachedImage}
-                  alt="附件预览"
-                  className="max-h-36 max-w-full rounded-lg object-contain bg-white shadow-sm"
-                />
-                {isDoodle && (
-                  <span className="absolute bottom-2 left-2 bg-slate-900/80 text-white text-[10px] px-1.5 py-0.5 rounded font-mono">
-                    🎨 涂鸦便签
-                  </span>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setAttachedImage(null);
-                  setIsDoodle(false);
-                }}
-                className="absolute -top-2 -right-2 p-1 bg-rose-600 text-white rounded-full shadow hover:bg-rose-700 transition-colors"
-                title="移除配图"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          )}
-
-          {/* 隐藏的文件输入 */}
-          <input
-            type="file"
-            ref={fileInputRef}
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files?.[0]) {
-                handleImageFile(e.target.files[0]);
-              }
-            }}
-          />
-
-          {/* 底部工具条与提交 */}
-          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
-            <div className="flex items-center gap-2">
-              {/* 添加图片按钮 */}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs flex items-center gap-1 font-mono transition-colors"
-              >
-                <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
-                <span>传图/截图</span>
-              </button>
-
-              {/* 即兴涂鸦按钮 */}
-              <button
-                type="button"
-                onClick={() => setShowDoodleModal(true)}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs flex items-center gap-1 font-mono transition-colors"
-              >
-                <Palette className="w-3.5 h-3.5 text-indigo-600" />
-                <span>手绘涂鸦</span>
-              </button>
-            </div>
-
-            <button
-              type="submit"
-              disabled={(!content.trim() && !attachedImage) || submitting}
-              className="px-5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 text-white font-semibold text-xs shadow-sm transition-all flex items-center gap-1.5 font-mono"
-            >
-              <Send className="w-3 h-3" />
-              <span>{submitting ? 'SENDING...' : 'POST'}</span>
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* 动态信息流列表 */}
-      <div className="space-y-3.5">
-        <div className="flex items-center justify-between text-xs text-slate-400 px-1 font-mono">
-          <span>ALL MOMENTS ({posts.length})</span>
-          <span className="flex items-center gap-1">
-            <Clock className="w-3 h-3" /> REALTIME STREAM
-          </span>
-        </div>
-
-        {topLevelPosts.length === 0 ? (
-          <div className="py-20 text-center bg-white rounded-2xl border border-slate-200 p-8 space-y-2">
-            <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-400 mx-auto flex items-center justify-center font-mono">
-              💬
-            </div>
-            <p className="text-xs font-semibold text-slate-700">暂无互动说说</p>
-            <p className="text-[11px] text-slate-400">
-              在上方写下一句话或分享手绘便签，记录你们的专属日常吧！
-            </p>
+      {/* 中间核心：QQ 式对话布局消息流（左侧对方，右侧自己） */}
+      <div
+        ref={chatScrollRef}
+        className="flex-1 min-h-0 overflow-y-auto px-1 sm:px-2 py-2 space-y-3 no-scrollbar"
+      >
+        {posts.length === 0 ? (
+          <div className="py-20 text-center text-slate-400 text-xs font-mono space-y-1">
+            <p>还没有聊天记录</p>
+            <p className="text-[11px] text-slate-300">发一条文字、拍一张照片或画一张涂鸦吧！</p>
           </div>
         ) : (
-          topLevelPosts.map((post) => {
-            const isMe = post.author_id === userId;
-            const replies = repliesByParentId[post.id] || [];
-            const isThreadExpanded = expandedThreads[post.id] ?? true;
+          posts.map((post, idx) => {
+            const isMine = post.author_id === userId;
+            const images = parseImages(post.image_url);
+            const parentPost = post.parent_id
+              ? posts.find((p) => p.id === post.parent_id)
+              : null;
+
+            // 时间分割线（相邻消息间隔大于 5 分钟显示）
+            let showTimeDivider = false;
+            if (idx === 0) {
+              showTimeDivider = true;
+            } else {
+              const prevTime = new Date(posts[idx - 1].created_at).getTime();
+              const currTime = new Date(post.created_at).getTime();
+              if (currTime - prevTime > 5 * 60 * 1000) {
+                showTimeDivider = true;
+              }
+            }
 
             return (
-              <div
-                key={post.id}
-                className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200 shadow-sm space-y-3 hover:border-slate-300 transition-colors"
-              >
-                {/* 动态卡片头部 */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-base">{post.mood || '📌'}</span>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-slate-900">
-                          {post.author_nickname}
-                        </span>
-                        {isMe && (
-                          <span className="text-[9px] px-1 py-0.2 rounded bg-slate-100 text-slate-500 font-mono">
-                            ME
-                          </span>
-                        )}
-                        {/* 状态徽章标注 */}
-                        {post.post_type === 'status' && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 font-medium">
-                            打卡状态
-                          </span>
-                        )}
-                        {post.post_type === 'doodle' && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-medium">
-                            🎨 手绘涂鸦
-                          </span>
-                        )}
-                        {post.post_type === 'badge_reward' && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200 font-medium">
-                            🌸 小红花奖励
-                          </span>
-                        )}
+              <div key={post.id} className="space-y-1">
+                {showTimeDivider && (
+                  <div className="text-center py-1">
+                    <span className="text-[10px] font-mono text-slate-400 bg-slate-100/90 px-2.5 py-0.5 rounded-full shadow-2xs">
+                      {formatChatTime(post.created_at)}
+                    </span>
+                  </div>
+                )}
+
+                {/* 气泡外层 */}
+                <div
+                  className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-full`}
+                >
+                  {/* 发送者昵称 */}
+                  <span className="text-[10px] text-slate-400 font-mono mb-0.5 px-1">
+                    {post.author_nickname}
+                  </span>
+
+                  {/* 聊天气泡主体 */}
+                  <div
+                    className={`relative p-3 rounded-2xl shadow-xs transition-all max-w-[88%] sm:max-w-[78%] ${
+                      isMine
+                        ? 'bg-blue-600 text-white rounded-tr-xs'
+                        : 'bg-white border border-slate-200/90 text-slate-900 rounded-tl-xs'
+                    }`}
+                  >
+                    {/* 心情角标（仅当有 mood 时显示） */}
+                    {post.mood && (
+                      <div
+                        className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full mb-1.5 font-medium ${
+                          isMine ? 'bg-blue-700/80 text-blue-100' : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        <span>{post.mood}</span>
+                        <span>心情</span>
                       </div>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        {formatRelativeTime(post.created_at)}
-                      </span>
-                    </div>
+                    )}
+
+                    {/* 引用回复摘要 */}
+                    {parentPost && (
+                      <div
+                        className={`text-xs p-2 rounded-lg border-l-2 mb-2 line-clamp-2 ${
+                          isMine
+                            ? 'bg-blue-700/60 border-blue-300 text-blue-100'
+                            : 'bg-slate-50 border-blue-500 text-slate-600'
+                        }`}
+                      >
+                        <span className="font-bold mr-1">@{parentPost.author_nickname}:</span>
+                        <span>{parentPost.content || '[图片/涂鸦]'}</span>
+                      </div>
+                    )}
+
+                    {/* 文本内容 */}
+                    {post.content && (
+                      <p className="text-xs sm:text-sm whitespace-pre-wrap break-words leading-relaxed">
+                        {post.content}
+                      </p>
+                    )}
+
+                    {/* 图片与涂鸦多图矩阵 */}
+                    {images.length > 0 && (
+                      <div
+                        className={`mt-2 gap-1.5 ${
+                          images.length === 1
+                            ? 'flex'
+                            : images.length === 2
+                            ? 'grid grid-cols-2'
+                            : 'grid grid-cols-3'
+                        }`}
+                      >
+                        {images.map((imgUrl, imgIdx) => (
+                          <div
+                            key={imgIdx}
+                            onClick={() => setPreviewImage(imgUrl)}
+                            className="relative rounded-xl overflow-hidden cursor-zoom-in bg-black/5 hover:opacity-90 transition-opacity border border-black/5"
+                          >
+                            <img
+                              src={imgUrl}
+                              alt="media"
+                              className={`object-cover ${
+                                images.length === 1
+                                  ? 'max-h-56 max-w-full rounded-xl'
+                                  : 'w-full h-24 sm:h-28 rounded-xl'
+                              }`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  {/* 删除操作 */}
-                  {isMe && (
-                    <button
-                      onClick={() => handleDeletePost(post.id)}
-                      className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"
-                      title="删除动态"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {/* 动态文本正文 */}
-                {post.content && (
-                  <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap">
-                    {post.content}
-                  </p>
-                )}
-
-                {/* 动态配图 / 手绘便签 */}
-                {post.image_url && (
-                  <div className="pt-1">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={post.image_url}
-                      alt="动态图片"
-                      className="max-h-72 rounded-xl object-contain bg-slate-50 border border-slate-100 shadow-sm"
+                  {/* 气泡下方：快捷表态胶囊与操作 */}
+                  <div
+                    className={`flex items-center gap-2 mt-1 px-1 flex-wrap ${
+                      isMine ? 'justify-end' : 'justify-start'
+                    }`}
+                  >
+                    {/* 表情表态 */}
+                    <ReactionCapsules
+                      postId={post.id}
+                      reactions={reactions}
+                      currentUserId={userId}
+                      onToggleReaction={handleToggleReaction}
                     />
-                  </div>
-                )}
 
-                {/* 动态卡片底部操作栏 */}
-                <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                  {/* 行内表情表态胶囊 */}
-                  <ReactionCapsules
-                    postId={post.id}
-                    reactions={reactions.filter((r) => r.post_id === post.id)}
-                    currentUserId={userId}
-                    onToggleReaction={handleToggleReaction}
-                  />
-
-                  {/* 快捷奖惩打赏与引用回复入口 */}
-                  <div className="flex items-center gap-1.5">
-                    {/* 快捷奖励小红花 */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPrefilledPostId(post.id);
-                        setShowBadgeLedger(true);
-                      }}
-                      className="px-2 py-1 rounded-lg bg-rose-50/70 hover:bg-rose-100 text-rose-700 text-xs font-medium flex items-center gap-1 border border-rose-200 transition-colors"
-                      title="为此动态发放奖励"
-                    >
-                      <span>🌸</span>
-                      <span className="hidden sm:inline text-[11px]">打赏</span>
-                    </button>
-
-                    {/* 引用回复 */}
+                    {/* 快捷操作：引用回复 */}
                     <button
                       type="button"
                       onClick={() => handleStartReply(post)}
-                      className="px-2 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs flex items-center gap-1 border border-slate-200 transition-colors font-mono"
+                      className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
                       title="引用回复"
                     >
-                      <MessageSquareReply className="w-3 h-3 text-blue-600" />
-                      <span className="text-[11px]">回复</span>
+                      <MessageSquareReply className="w-3.5 h-3.5" />
                     </button>
+
+                    {/* 若是对方发送，支持打赏小红花 */}
+                    {!isMine && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPrefilledPostId(post.id);
+                          setShowBadgeLedger(true);
+                        }}
+                        className="p-1 text-slate-400 hover:text-rose-500 transition-colors"
+                        title="给此动态打赏小红花"
+                      >
+                        <Award className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {/* 若是自己发送，支持删除 */}
+                    {isMine && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePost(post.id)}
+                        className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                        title="删除消息"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
-
-                {/* 楼中楼回复列表嵌套区域 */}
-                {replies.length > 0 && (
-                  <div className="mt-3 pt-2.5 border-t border-slate-100 pl-3 border-l-2 border-l-blue-400 space-y-2.5 bg-slate-50/60 p-2.5 rounded-xl">
-                    <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
-                      <span>楼中楼回复 ({replies.length})</span>
-                      <button
-                        onClick={() =>
-                          setExpandedThreads((prev) => ({
-                            ...prev,
-                            [post.id]: !isThreadExpanded,
-                          }))
-                        }
-                        className="flex items-center gap-0.5 text-blue-600 hover:underline"
-                      >
-                        {isThreadExpanded ? (
-                          <>
-                            <span>收起</span>
-                            <ChevronUp className="w-3 h-3" />
-                          </>
-                        ) : (
-                          <>
-                            <span>展开 ({replies.length})</span>
-                            <ChevronDown className="w-3 h-3" />
-                          </>
-                        )}
-                      </button>
-                    </div>
-
-                    {isThreadExpanded &&
-                      replies.map((reply) => (
-                        <div
-                          key={reply.id}
-                          className="bg-white p-2.5 rounded-xl border border-slate-200/80 space-y-1.5 shadow-2xs"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5 text-xs">
-                              <span className="font-bold text-slate-900">
-                                {reply.author_nickname}
-                              </span>
-                              {reply.author_id === userId && (
-                                <span className="text-[9px] px-1 rounded bg-slate-100 text-slate-500 font-mono">
-                                  ME
-                                </span>
-                              )}
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                {formatRelativeTime(reply.created_at)}
-                              </span>
-                            </div>
-                            {reply.author_id === userId && (
-                              <button
-                                onClick={() => handleDeletePost(reply.id)}
-                                className="text-slate-300 hover:text-red-500"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-
-                          <p className="text-xs text-slate-800 whitespace-pre-wrap">
-                            {reply.content}
-                          </p>
-
-                          {reply.image_url && (
-                            /* eslint-disable-next-line @next/next/no-img-element */
-                            <img
-                              src={reply.image_url}
-                              alt="回复图片"
-                              className="max-h-40 rounded-lg object-contain border border-slate-100"
-                            />
-                          )}
-
-                          {/* 楼中楼回复同样支持贴纸表态 */}
-                          <ReactionCapsules
-                            postId={reply.id}
-                            reactions={reactions.filter((r) => r.post_id === reply.id)}
-                            currentUserId={userId}
-                            onToggleReaction={handleToggleReaction}
-                          />
-                        </div>
-                      ))}
-                  </div>
-                )}
               </div>
             );
           })
         )}
       </div>
 
-      {/* 徽章账本抽屉 / 奖惩弹窗 */}
+      {/* 底部固定输入区（QQ 式输入条） */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-2 sm:p-2.5 space-y-1.5 shrink-0 mt-1">
+        {/* 引用回复提示条 */}
+        {replyingTo && (
+          <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-1 text-xs text-blue-900 animate-fade-in">
+            <div className="flex items-center gap-1.5 truncate">
+              <MessageSquareReply className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span className="truncate">
+                回复 <strong>@{replyingTo.author_nickname}</strong>: {replyingTo.content.slice(0, 30)}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyingTo(null)}
+              className="text-blue-400 hover:text-blue-700 ml-2"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* 多图及涂鸦预览横条 */}
+        {attachedImages.length > 0 && (
+          <div className="flex items-center gap-2 overflow-x-auto py-1 no-scrollbar animate-fade-in">
+            {attachedImages.map((img, i) => (
+              <div key={i} className="relative shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-slate-200">
+                <img src={img} alt="preview" className="w-full h-full object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setAttachedImages((prev) => prev.filter((_, idx) => idx !== i))}
+                  className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-slate-900/80 text-white flex items-center justify-center text-[10px]"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            ))}
+            <span className="text-[10px] text-slate-400 font-mono shrink-0">
+              已选 {attachedImages.length} 张
+            </span>
+          </div>
+        )}
+
+        {/* 快捷打卡展开抽屉 */}
+        {showQuickStatus && (
+          <div className="pt-1 pb-1.5 border-b border-slate-100 animate-fade-in">
+            <QuickStatusBar onSelectStatus={handleSelectQuickStatus} disabled={submitting} />
+          </div>
+        )}
+
+        {/* 工具栏排：多选图片、即兴涂鸦、心情选择（支持空心情）、打卡入口 */}
+        <div className="flex items-center justify-between gap-1 text-slate-600">
+          <div className="flex items-center gap-1">
+            {/* 多图上传 */}
+            <input
+              type="file"
+              multiple
+              accept="image/*"
+              ref={fileInputRef}
+              onChange={handleFilesSelect}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 flex items-center gap-1 text-xs transition-colors"
+              title="上传图片 (支持同时上传多张)"
+            >
+              <ImageIcon className="w-4 h-4 text-blue-600" />
+              <span className="hidden sm:inline text-[11px]">图片</span>
+            </button>
+
+            {/* 即兴涂鸦便签 */}
+            <button
+              type="button"
+              onClick={() => setShowDoodleModal(true)}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 flex items-center gap-1 text-xs transition-colors"
+              title="即兴手绘涂鸦 (可与图片同时发送)"
+            >
+              <Palette className="w-4 h-4 text-indigo-600" />
+              <span className="hidden sm:inline text-[11px]">手绘涂鸦</span>
+            </button>
+
+            {/* 心情下拉选择（支持“无心情”空选项） */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowMoodMenu(!showMoodMenu)}
+                className={`p-1.5 rounded-lg hover:bg-slate-100 flex items-center gap-1 text-xs transition-colors ${
+                  selectedMood ? 'bg-amber-50 text-amber-700 font-bold' : 'text-slate-600'
+                }`}
+                title="选择心情 (支持不选)"
+              >
+                <span>{selectedMood || <Smile className="w-4 h-4 text-amber-500" />}</span>
+                <span className="text-[11px]">{selectedMood ? '已选' : '心情'}</span>
+                <ChevronDown className="w-3 h-3 text-slate-400" />
+              </button>
+
+              {showMoodMenu && (
+                <div className="absolute bottom-8 left-0 z-50 bg-white rounded-xl shadow-xl border border-slate-200 p-2 grid grid-cols-5 gap-1.5 w-52 animate-fade-in">
+                  {MOOD_OPTIONS.map((m) => (
+                    <button
+                      key={m.label}
+                      type="button"
+                      onClick={() => {
+                        setSelectedMood(m.emoji || null);
+                        setShowMoodMenu(false);
+                      }}
+                      className={`p-1.5 rounded-lg text-center text-xs transition-all ${
+                        selectedMood === m.emoji || (!selectedMood && !m.emoji)
+                          ? 'bg-slate-900 text-white font-bold'
+                          : 'hover:bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      <span className="text-base block">{m.emoji || '🚫'}</span>
+                      <span className="text-[9px] block mt-0.5 truncate">{m.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 状态打卡入口切换 */}
+            <button
+              type="button"
+              onClick={() => setShowQuickStatus(!showQuickStatus)}
+              className={`p-1.5 rounded-lg hover:bg-slate-100 flex items-center gap-1 text-xs transition-colors ${
+                showQuickStatus ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600'
+              }`}
+              title="快速状态打卡"
+            >
+              <Sparkles className="w-4 h-4 text-emerald-500" />
+              <span className="hidden sm:inline text-[11px]">打卡</span>
+            </button>
+          </div>
+
+          <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
+            Enter 发送 · Shift+Enter 换行
+          </span>
+        </div>
+
+        {/* 输入框与发送按钮 */}
+        <form onSubmit={handleSendMessage} className="flex items-end gap-2">
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            onPaste={handlePaste}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendMessage();
+              }
+            }}
+            placeholder="发送消息交流（支持 Ctrl+V 粘贴截图）..."
+            className="flex-1 max-h-24 min-h-[36px] py-1.5 px-3 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-slate-900 bg-slate-50 resize-none leading-relaxed"
+          />
+
+          <button
+            type="submit"
+            disabled={submitting || (!content.trim() && attachedImages.length === 0)}
+            className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 text-white text-xs font-semibold shadow-xs transition-all flex items-center gap-1 font-mono shrink-0 active:scale-95"
+          >
+            <Send className="w-3.5 h-3.5" />
+            <span>发送</span>
+          </button>
+        </form>
+      </div>
+
+      {/* 徽章与小红花账本 Modal */}
       <BadgeLedgerModal
         isOpen={showBadgeLedger}
-        onClose={() => {
-          setShowBadgeLedger(false);
-          setPrefilledPostId(null);
-        }}
+        onClose={() => setShowBadgeLedger(false)}
         pairCode={pairCode}
         userId={userId}
         nickname={nickname}
@@ -989,15 +1065,29 @@ export default function MomentsPage() {
         prefilledPostId={prefilledPostId}
       />
 
-      {/* 即兴手绘涂鸦便签 Modal */}
+      {/* 即兴手绘涂鸦 Modal（保存后加入待发送多媒体队列，支持与照片一起发送） */}
       <DoodleModal
         isOpen={showDoodleModal}
         onClose={() => setShowDoodleModal(false)}
         onSaveDoodle={(dataUrl) => {
-          setAttachedImage(dataUrl);
-          setIsDoodle(true);
+          setAttachedImages((prev) => [...prev, dataUrl]);
+          setShowDoodleModal(false);
         }}
       />
+
+      {/* 大图预览灯箱 */}
+      {previewImage && (
+        <div
+          onClick={() => setPreviewImage(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in cursor-zoom-out"
+        >
+          <img
+            src={previewImage}
+            alt="full preview"
+            className="max-w-[95vw] max-h-[90vh] rounded-2xl shadow-2xl object-contain"
+          />
+        </div>
+      )}
     </div>
   );
 }
