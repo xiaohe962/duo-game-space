@@ -6,25 +6,24 @@
 - **线上站点**：`https://nimble-horse-be2b07.netlify.app`（Netlify 持续部署）。
 - **远程仓库**：`https://github.com/xiaohe962/duo-game-space.git` (`main` 分支)。
 
-## 2. 动态空间 (Moments v3.0) 深度重构已完成
-- [x] **小红花与徽章账本系统**：
-  - 顶部徽章统计胶囊（🌸小红花、🌟星星、☕咖啡、🤗抱抱），点击弹出「徽章账本」Modal；
-  - 双方资产对比看板、按时间排序的 `badge_logs` 明细流水、快捷调分奖惩入口与动态底部“打赏”直通车；
-  - 增减徽章触发全屏粒子撒花动效（`canvas-confetti`）与微震动反馈（`navigator.vibrate`）。
-- [x] **多媒体与即兴手绘涂鸦**：
-  - 原生支持图片文件选择与剪贴板 `onPaste` 截图直传；
-  - 弹窗式 Canvas 即兴手绘便签板（多色、粗细调节、撤销、清空、生成 PNG 并插入动态）。
-- [x] **楼中楼与引用回复**：
-  - 支持 `parent_id` 引用回复，动态卡片高亮渲染被引用原消息摘要，折叠展开全部楼中楼子评论。
-- [x] **行内贴纸表态 (Reactions)**：
-  - 动态卡片底部展示聚合表态胶囊（点赞即刻高亮并计数切换），支持横向快捷 Emoji 选择器（❤️, 🌸, 👏, 🥺, ⚡, 🎉）。
-- [x] **专属快捷状态打卡条**：
-  - 常驻预设状态胶囊（📍在路上、🔋没电了、☕学习中、🌙晚安打卡等），一键同步 `user_status` 并自动生成状态说说流。
-- [x] **全量 Realtime 统一监听**：
-  - `couple_posts`、`badge_balances`、`badge_logs`、`post_reactions`、`user_status` 五表统一广播订阅。
+## 2. 最近一次核心更新（绘图引擎与交互全面升级）
+- [x] **修复你画我猜撤回失效 Bug**：
+  - 原因定位：原逻辑在每次 `pointermove` 产生数十个微线段，点击撤销仅 `pop` 1 个微线段导致肉眼不可见。
+  - 彻底修复：每次下笔分配全局唯一 `strokeId`，撤回时精准批量过滤整条笔划所有采样点，双端 Realtime 广播同步抹除并重新渲染。
+- [x] **11 色预设 + 第 12 格自选色（专业 HSV 渐变色板）**：
+  - 色盘严格控制为 11 种高频预制颜色；
+  - 第 12 个格子为自选调色器，点击展开 2D 饱和度-明度渐变方块（白-透明/黑-透明蒙层 + 圆环拖拽光标）与底部色相彩虹滑动条（H 标识 + 0~360° 角度读数），与参考设计 1:1 对齐。
+- [x] **笔刷粗细自由无级调节**：
+  - 移除固定档位按钮，改为 1~40px 连续无级滑块，配套动态缩放的视觉圆点与实时数值显示。
+- [x] **你画我猜顶部布局深度精简**：
+  - 移除冗余双层卡片，收缩为紧凑单行横条（局数 R1/3、角色标签、题目掩码胶囊、倒计时与退出），大幅释放移动端和桌面端的画板视野。
+- [x] **动态空间即兴手绘（DoodleModal）功能全面统一**：
+  - 引入通用 `CustomColorPicker` 组件；
+  - 统一 11 预设色 + 第 12 格自选色 + 1~40px 连续笔刷粗细调节 + 单笔完整撤回。
 
-## 3. 数据库与迁移交付
-- [x] 完整建表与扩展脚本已就绪：[`supabase/migration_v3_moments.sql`](file:///d:/antigravity/202611/supabase/migration_v3_moments.sql) 与 [`supabase/schema.sql`](file:///d:/antigravity/202611/supabase/schema.sql)。
+## 3. 已验证要点与避坑记录
+- 画布必须保留 DPR Retina 校准，并在 `session.status === 'drawing'` 或弹窗打开后延迟 60ms 校验，防止尺寸塌陷为 300x150。
+- Realtime 频道统一复用 `channelRef.current`，防止重复 subscribe 造成丢包。
 
-## 4. 后续日常指引 (Next Steps)
-- 请在 Supabase 控制台的 SQL Editor 中执行 `supabase/migration_v3_moments.sql` 即可完成远端数据库字段升级。
+## 4. 下一步待办事项 (Next Steps)
+- 保持线上 Netlify 自动化流水线健康，持续监控双人互动稳定性。

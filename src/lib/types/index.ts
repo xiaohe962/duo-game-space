@@ -162,6 +162,7 @@ export interface DrawStrokePoint {
 
 export interface DrawStrokePayload {
   type: 'draw' | 'clear' | 'undo';
+  strokeId?: string; // 笔划唯一 ID，用于多点成笔撤销
   color?: string;
   size?: number;
   from?: DrawStrokePoint;

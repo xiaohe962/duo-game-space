@@ -8,6 +8,7 @@ import { DrawSession, DrawMessage, DrawStrokePayload, DrawStrokePoint } from '@/
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import { soundEffects } from '@/lib/audio/sound';
 import confetti from 'canvas-confetti';
+import CustomColorPicker from '@/components/draw/CustomColorPicker';
 import {
   Palette,
   Sparkles,
@@ -22,28 +23,23 @@ import {
   Pipette,
   Check,
   RefreshCw,
+  Sliders,
 } from 'lucide-react';
 
+// 精确控制在 11 种高频预制颜色，第 12 个格子为自选调色器
 const PRESET_COLORS = [
-  '#0f172a', // 深蓝黑
-  '#334155', // 冷石灰
-  '#64748b', // 钢灰
-  '#cbd5e1', // 浅灰
+  '#0f172a', // 曜石黑
+  '#64748b', // 冷石灰
   '#ffffff', // 纯白
   '#ef4444', // 鲜红
   '#f97316', // 暖橙
-  '#eab308', // 金黄
+  '#eab308', // 明黄
   '#10b981', // 翡翠绿
   '#06b6d4', // 湖水青
   '#2563eb', // 皇家蓝
-  '#6366f1', // 靛青蓝
-  '#8b5cf6', // 浅紫
-  '#ec4899', // 玫瑰红
-  '#78350f', // 质感棕
-  '#84cc16', // 荧光青绿
+  '#8b5cf6', // 梦幻紫
+  '#ec4899', // 玫瑰粉
 ];
-
-const BRUSH_SIZES = [2, 6, 12, 20];
 
 export default function DrawPage() {
   const router = useRouter();
@@ -56,8 +52,10 @@ export default function DrawPage() {
   const [inputGuess, setInputGuess] = useState('');
   const [remainingTime, setRemainingTime] = useState<number>(120);
 
-  // 画板绘图配置
+  // 画板绘图配置（11 预设色 + 1 自选色 + 自由连续粗细 1~40px）
   const [brushColor, setBrushColor] = useState<string>('#0f172a');
+  const [customColor, setCustomColor] = useState<string>('#8b5cf6');
+  const [showCustomPicker, setShowCustomPicker] = useState<boolean>(false);
   const [brushSize, setBrushSize] = useState<number>(6);
   const [isEraser, setIsEraser] = useState<boolean>(false);
   const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
@@ -65,6 +63,7 @@ export default function DrawPage() {
   // 画板引用与贝塞尔平滑缓存
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef<boolean>(false);
+  const currentStrokeIdRef = useRef<string | null>(null);
   const lastPointRef = useRef<DrawStrokePoint | null>(null);
   const strokeHistoryRef = useRef<DrawStrokePayload[]>([]);
   const channelRef = useRef<any>(null);
@@ -303,7 +302,13 @@ export default function DrawPage() {
     }
 
     if (stroke.type === 'undo') {
-      strokeHistoryRef.current.pop();
+      if (stroke.strokeId) {
+        strokeHistoryRef.current = strokeHistoryRef.current.filter(
+          (s) => s.strokeId !== stroke.strokeId
+        );
+      } else {
+        strokeHistoryRef.current.pop();
+      }
       redrawAll();
       return;
     }
@@ -362,6 +367,8 @@ export default function DrawPage() {
     const point = getNormalizedPoint(e);
     if (!point) return;
 
+    const strokeId = 's_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+    currentStrokeIdRef.current = strokeId;
     isDrawingRef.current = true;
     lastPointRef.current = point;
   };
@@ -402,9 +409,10 @@ export default function DrawPage() {
     );
     ctx.stroke();
 
-    // 广播平滑笔迹
+    // 广播平滑笔迹（绑定 strokeId 归属）
     const strokePayload: DrawStrokePayload = {
       type: 'draw',
+      strokeId: currentStrokeIdRef.current || undefined,
       color: currentColor,
       size: currentSize,
       from: lastPointRef.current,
@@ -417,8 +425,42 @@ export default function DrawPage() {
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // 处理单击点按画点情况
+    if (isDrawingRef.current && lastPointRef.current && currentStrokeIdRef.current) {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        const rect = canvas.getBoundingClientRect();
+        if (ctx) {
+          const currentColor = isEraser ? '#ffffff' : brushColor;
+          const currentSize = isEraser ? brushSize * 2 : brushSize;
+          ctx.fillStyle = currentColor;
+          ctx.beginPath();
+          ctx.arc(
+            lastPointRef.current.x * rect.width,
+            lastPointRef.current.y * rect.height,
+            currentSize / 2,
+            0,
+            Math.PI * 2
+          );
+          ctx.fill();
+
+          const dotPayload: DrawStrokePayload = {
+            type: 'draw',
+            strokeId: currentStrokeIdRef.current,
+            color: currentColor,
+            size: currentSize,
+            from: lastPointRef.current,
+            to: lastPointRef.current,
+          };
+          broadcastStroke(dotPayload);
+        }
+      }
+    }
+
     isDrawingRef.current = false;
     lastPointRef.current = null;
+    currentStrokeIdRef.current = null;
     try {
       if (typeof canvasRef.current?.releasePointerCapture === 'function' && e.pointerId !== undefined) {
         canvasRef.current.releasePointerCapture(e.pointerId);
@@ -439,12 +481,31 @@ export default function DrawPage() {
     setShowClearConfirm(false);
   };
 
-  // 撤销上一笔
+  // 撤销上一笔（按完整笔划 strokeId 批量移除，瞬时可见撤回效果）
   const handleUndo = () => {
-    if (!isPainter) return;
-    strokeHistoryRef.current.pop();
-    redrawAll();
-    broadcastStroke({ type: 'undo' });
+    if (!isPainter || strokeHistoryRef.current.length === 0) return;
+
+    // 寻找末尾最后一个有效的 strokeId
+    let targetStrokeId: string | undefined;
+    for (let i = strokeHistoryRef.current.length - 1; i >= 0; i--) {
+      if (strokeHistoryRef.current[i].strokeId) {
+        targetStrokeId = strokeHistoryRef.current[i].strokeId;
+        break;
+      }
+    }
+
+    if (targetStrokeId) {
+      strokeHistoryRef.current = strokeHistoryRef.current.filter(
+        (s) => s.strokeId !== targetStrokeId
+      );
+      redrawAll();
+      broadcastStroke({ type: 'undo', strokeId: targetStrokeId });
+    } else {
+      // 容错兜底
+      strokeHistoryRef.current.pop();
+      redrawAll();
+      broadcastStroke({ type: 'undo' });
+    }
   };
 
   // 120 秒倒计时
@@ -681,52 +742,70 @@ export default function DrawPage() {
   }
 
   return (
-    <div className="min-h-dvh max-w-6xl mx-auto px-3 sm:px-4 py-3 md:py-6 flex flex-col justify-between space-y-3">
-      {/* 顶部对局与状态栏 */}
-      <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center font-bold font-mono text-xs">
-            #{session?.round_number || 1}
-          </div>
-          <div>
-            <h1 className="text-sm md:text-base font-bold text-slate-900 flex items-center gap-2">
-              你画我猜 · 第 {session?.round_number || 1} 局
-            </h1>
-            <p className="text-xs text-slate-500">
-              当前角色：
-              <strong className="text-blue-600 font-semibold ml-1">
-                {isPainter ? '🎨 你是画师（作画中）' : '👀 你是猜词者（竞猜中）'}
-              </strong>
-            </p>
-          </div>
+    <div className="min-h-dvh max-w-6xl mx-auto px-2.5 sm:px-4 py-2 sm:py-3 flex flex-col justify-between space-y-2">
+      {/* 极简紧凑顶部栏：大幅缩减垂直高度占用 */}
+      <div className="bg-white rounded-xl px-3 py-1.5 border border-slate-200 shadow-xs flex items-center justify-between gap-2">
+        {/* 左侧：局数徽章 + 角色状态 */}
+        <div className="flex items-center gap-2">
+          <span className="px-2 py-0.5 rounded-md bg-slate-900 text-white font-mono font-bold text-xs shadow-xs">
+            R{session?.round_number || 1}
+          </span>
+          <span className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+            {isPainter ? (
+              <span className="text-blue-600 flex items-center gap-1 font-bold">
+                <Palette className="w-3.5 h-3.5" /> 作画中
+              </span>
+            ) : (
+              <span className="text-emerald-600 flex items-center gap-1 font-bold">
+                👀 竞猜中
+              </span>
+            )}
+          </span>
         </div>
 
-        {/* 倒计时与题目透出 */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        {/* 中间：题目胶囊 */}
+        <div className="px-3 py-0.5 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center gap-1.5 shadow-inner">
+          <span className="text-[10px] text-slate-400 font-mono font-medium">题目:</span>
+          <span className="text-xs font-bold text-slate-900 font-mono tracking-wider">
+            {isPainter ? session?.word || '挑选题目中...' : getGuesserWordMask()}
+          </span>
+        </div>
+
+        {/* 右侧：倒计时 + 退出 */}
+        <div className="flex items-center gap-2">
           {session?.status === 'drawing' && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-bold font-mono">
-              <Timer className="w-3.5 h-3.5 text-blue-400" />
+            <div
+              className={`flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold font-mono transition-colors ${
+                remainingTime <= 30
+                  ? 'bg-rose-500 text-white animate-pulse'
+                  : 'bg-slate-900 text-white'
+              }`}
+            >
+              <Timer className="w-3.5 h-3.5" />
               <span>{remainingTime}s</span>
             </div>
           )}
-
-          <div className="px-3.5 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-right">
-            <span className="text-[10px] text-slate-400 font-mono block">TARGET</span>
-            <span className="text-xs font-bold text-slate-900 font-mono tracking-wider">
-              {isPainter ? session?.word || '选题中...' : getGuesserWordMask()}
-            </span>
-          </div>
+          <button
+            type="button"
+            onClick={() => router.push('/')}
+            className="px-2 py-0.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-xs"
+            title="退出对局"
+          >
+            退出
+          </button>
         </div>
       </div>
 
-      {/* 半程线索提示条 */}
+      {/* 半程线索提示条 (极简紧凑型) */}
       {session?.status === 'drawing' && remainingTime <= 60 && session.hint && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-2.5 px-4 text-xs text-blue-900 flex items-center gap-2 animate-fade-in font-mono">
-          <Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-          <span>
-            <strong>半程线索解锁：</strong>
-            【分类：{session.category}】— {session.hint}
-          </span>
+        <div className="bg-amber-50/90 border border-amber-200/80 rounded-lg px-3 py-1 text-[11px] text-amber-900 flex items-center justify-between gap-2 animate-fade-in font-mono shadow-xs">
+          <div className="flex items-center gap-1.5 truncate">
+            <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <span className="truncate">
+              <strong>线索：</strong>【{session.category}】{session.hint}
+            </span>
+          </div>
+          <span className="text-[10px] text-amber-600 shrink-0 font-medium">已解锁</span>
         </div>
       )}
 
@@ -820,14 +899,15 @@ export default function DrawPage() {
               )}
             </div>
 
-            {/* 画师工具条（色盘、调色器、笔刷粗细、实时预览圆点、清屏、撤销） */}
+            {/* 画师工具条（11 预设色 + 1 自选色、无级笔刷粗细、实时预览圆点、清屏、撤销） */}
             {isPainter && (
-              <div className="bg-white rounded-xl p-2.5 border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-2.5">
-                {/* 16 色预设色盘与自定义拾色器 */}
+              <div className="bg-white rounded-xl p-2.5 border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-2.5 relative">
+                {/* 11 色预设色盘 + 第 12 格自选色 */}
                 <div className="flex items-center flex-wrap gap-1.5">
                   {PRESET_COLORS.map((c) => (
                     <button
                       key={c}
+                      type="button"
                       onClick={() => {
                         setBrushColor(c);
                         setIsEraser(false);
@@ -836,85 +916,120 @@ export default function DrawPage() {
                       className={`w-5 h-5 rounded-md border transition-all ${
                         brushColor === c && !isEraser
                           ? 'scale-125 ring-2 ring-slate-900 border-white shadow-sm'
-                          : 'border-slate-300'
+                          : 'border-slate-300 hover:scale-110'
                       }`}
+                      title={c}
                     />
                   ))}
 
-                  {/* 自定义拾色器 input[type=color] */}
-                  <label
-                    title="自定义百万拾色"
-                    className="relative w-6 h-6 rounded-md border border-slate-300 flex items-center justify-center cursor-pointer hover:bg-slate-50 transition-colors"
-                  >
-                    <Pipette className="w-3 h-3 text-slate-600" />
-                    <input
-                      type="color"
-                      value={brushColor}
-                      onChange={(e) => {
-                        setBrushColor(e.target.value);
-                        setIsEraser(false);
-                      }}
-                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                    />
-                  </label>
+                  {/* 第 12 个格子：自选色与 HSV 专业色板 */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowCustomPicker(!showCustomPicker)}
+                      style={{ backgroundColor: customColor }}
+                      title="第12格：自定义HSV色彩"
+                      className={`relative w-5 h-5 rounded-md border transition-all flex items-center justify-center ${
+                        brushColor === customColor && !isEraser
+                          ? 'scale-125 ring-2 ring-blue-500 border-white shadow-md'
+                          : 'border-slate-300 hover:scale-110'
+                      }`}
+                    >
+                      {/* 彩虹渐变角标提示自选 */}
+                      <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-gradient-to-tr from-pink-500 via-amber-400 to-cyan-400 border border-white shadow-xs" />
+                    </button>
+
+                    {/* 自选色浮层弹窗 */}
+                    {showCustomPicker && (
+                      <div className="absolute bottom-8 left-0 z-50 animate-fade-in shadow-2xl">
+                        <div
+                          className="fixed inset-0 z-40 bg-black/20 backdrop-blur-xs"
+                          onClick={() => setShowCustomPicker(false)}
+                        />
+                        <div className="relative z-50">
+                          <CustomColorPicker
+                            color={customColor}
+                            onChange={(newHex) => {
+                              setCustomColor(newHex);
+                              setBrushColor(newHex);
+                              setIsEraser(false);
+                            }}
+                            onClose={() => setShowCustomPicker(false)}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {/* 粗细选择与笔刷尺寸视觉预览圆点 */}
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-md bg-slate-100 flex items-center justify-center" title="当前笔刷大小预览">
+                {/* 粗细自由滑动调节与笔刷尺寸视觉预览圆点 */}
+                <div className="flex items-center gap-2 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
+                  {/* 实时尺寸预览圆点 */}
+                  <div
+                    className="w-6 h-6 rounded-md bg-white border border-slate-200 flex items-center justify-center shrink-0"
+                    title={`当前笔刷粗细: ${brushSize}px`}
+                  >
                     <div
                       style={{
-                        width: Math.min(18, Math.max(3, brushSize)),
-                        height: Math.min(18, Math.max(3, brushSize)),
+                        width: Math.min(20, Math.max(2, brushSize)),
+                        height: Math.min(20, Math.max(2, brushSize)),
                         backgroundColor: isEraser ? '#94a3b8' : brushColor,
                       }}
-                      className="rounded-full shadow-sm"
+                      className="rounded-full shadow-xs transition-all"
                     />
                   </div>
 
-                  <div className="flex items-center gap-1">
-                    {BRUSH_SIZES.map((sz) => (
-                      <button
-                        key={sz}
-                        onClick={() => setBrushSize(sz)}
-                        className={`w-6 h-6 rounded-lg flex items-center justify-center text-[11px] font-mono font-bold transition-all ${
-                          brushSize === sz
-                            ? 'bg-slate-900 text-white shadow-sm'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
-                      >
-                        {sz}
-                      </button>
-                    ))}
-                    <button
-                      onClick={() => setIsEraser(!isEraser)}
-                      className={`p-1 rounded-lg border transition-all ${
-                        isEraser
-                          ? 'bg-slate-900 text-white border-slate-900'
-                          : 'border-slate-200 text-slate-500 hover:bg-slate-50'
-                      }`}
-                      title="橡皮擦"
-                    >
-                      <Eraser className="w-3.5 h-3.5" />
-                    </button>
+                  {/* 连续自由滑动条 (1~40px) */}
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="range"
+                      min={1}
+                      max={40}
+                      step={1}
+                      value={brushSize}
+                      onChange={(e) => setBrushSize(Number(e.target.value))}
+                      className="w-16 sm:w-20 accent-slate-900 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
+                      title={`自由调整粗细: ${brushSize}px`}
+                    />
+                    <span className="text-[11px] font-mono font-bold text-slate-700 w-7 text-right">
+                      {brushSize}px
+                    </span>
                   </div>
+
+                  {/* 橡皮擦切换 */}
+                  <button
+                    type="button"
+                    onClick={() => setIsEraser(!isEraser)}
+                    className={`p-1 rounded-lg border transition-all ${
+                      isEraser
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'border-slate-200 text-slate-500 hover:bg-white'
+                    }`}
+                    title="橡皮擦"
+                  >
+                    <Eraser className="w-3.5 h-3.5" />
+                  </button>
                 </div>
 
                 {/* 撤销与一键清空 */}
                 <div className="flex items-center gap-1.5">
                   <button
+                    type="button"
                     onClick={handleUndo}
-                    className="p-1 px-2.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs flex items-center gap-1 font-mono"
-                    title="撤销上一笔"
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs flex items-center gap-1 font-medium transition-all active:scale-95"
+                    title="撤销上一笔（按完整笔划）"
                   >
-                    <Undo2 className="w-3 h-3" /> 撤销
+                    <Undo2 className="w-3.5 h-3.5" />
+                    <span>撤销</span>
                   </button>
                   <button
+                    type="button"
                     onClick={() => setShowClearConfirm(true)}
-                    className="p-1 px-2.5 rounded-lg bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-600 text-xs flex items-center gap-1 font-mono transition-colors"
-                    title="一键清屏"
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-700 text-xs flex items-center gap-1 font-medium transition-all"
+                    title="一键清空画板"
                   >
-                    <Trash2 className="w-3 h-3" /> 清屏
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>清屏</span>
                   </button>
                 </div>
               </div>
