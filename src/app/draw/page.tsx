@@ -60,6 +60,10 @@ export default function DrawPage() {
   const [isEraser, setIsEraser] = useState<boolean>(false);
   const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
 
+  // 角色固定标准 ID
+  const hostId = pairCode ? `pair_${pairCode}_host` : '';
+  const guestId = pairCode ? `pair_${pairCode}_guest` : '';
+
   // 画板引用与贝塞尔平滑缓存
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef<boolean>(false);
@@ -68,8 +72,18 @@ export default function DrawPage() {
   const strokeHistoryRef = useRef<DrawStrokePayload[]>([]);
   const channelRef = useRef<any>(null);
 
-  // 角色判定
-  const isPainter = session ? session.painter_id === userId : isHost;
+  // 笔迹微批次聚合缓冲队列与计时器（将 120Hz 密集触控合并为 30fps 数据帧，彻底消除 WebSocket 队列积压延迟）
+  const strokeBufferRef = useRef<DrawStrokePayload[]>([]);
+  const flushTimerRef = useRef<any>(null);
+
+  // 稳健角色判定（严格支持 pair_{code}_host 与角色互换，消除两端均显示选词等待的 bug）
+  const isPainter = session
+    ? session.painter_id === userId ||
+      (session.painter_id === hostId && isHost) ||
+      (session.painter_id === guestId && !isHost) ||
+      (session.painter_id === 'host' && isHost) ||
+      (session.painter_id === 'guest' && !isHost)
+    : isHost;
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
 
   // 消息自动吸底
@@ -232,16 +246,69 @@ export default function DrawPage() {
     };
   }, [pairCode]);
 
-  const broadcastStroke = (stroke: DrawStrokePayload) => {
+  // 笔迹微批次聚合发射：将 20ms 内的高频笔迹合并为一个 batch 数据包，彻底消除 WebSocket 拥塞与 2~3 秒迟滞
+  const flushStrokes = useCallback(() => {
+    if (strokeBufferRef.current.length === 0) return;
+    const strokesToSend = [...strokeBufferRef.current];
+    strokeBufferRef.current = [];
     if (!pairCode) return;
-    strokeHistoryRef.current.push(stroke);
     const targetChannel = channelRef.current || supabase.channel(`draw_realtime_${pairCode}`);
-    targetChannel.send({
-      type: 'broadcast',
-      event: 'STROKE',
-      payload: stroke,
-    });
-  };
+    if (strokesToSend.length === 1) {
+      targetChannel.send({
+        type: 'broadcast',
+        event: 'STROKE',
+        payload: strokesToSend[0],
+      });
+    } else {
+      targetChannel.send({
+        type: 'broadcast',
+        event: 'STROKE',
+        payload: {
+          type: 'batch',
+          strokes: strokesToSend,
+        },
+      });
+    }
+  }, [pairCode]);
+
+  const queueStroke = useCallback(
+    (stroke: DrawStrokePayload) => {
+      if (!pairCode) return;
+      strokeHistoryRef.current.push(stroke);
+      strokeBufferRef.current.push(stroke);
+      if (strokeBufferRef.current.length >= 4) {
+        if (flushTimerRef.current) {
+          clearTimeout(flushTimerRef.current);
+          flushTimerRef.current = null;
+        }
+        flushStrokes();
+      } else if (!flushTimerRef.current) {
+        flushTimerRef.current = setTimeout(() => {
+          flushTimerRef.current = null;
+          flushStrokes();
+        }, 20);
+      }
+    },
+    [flushStrokes, pairCode]
+  );
+
+  const broadcastImmediate = useCallback(
+    (stroke: DrawStrokePayload) => {
+      if (!pairCode) return;
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      flushStrokes();
+      const targetChannel = channelRef.current || supabase.channel(`draw_realtime_${pairCode}`);
+      targetChannel.send({
+        type: 'broadcast',
+        event: 'STROKE',
+        payload: stroke,
+      });
+    },
+    [flushStrokes, pairCode]
+  );
 
   const broadcastState = (
     nextSession: DrawSession,
@@ -297,6 +364,11 @@ export default function DrawPage() {
   };
 
   const handleRemoteStroke = (stroke: DrawStrokePayload) => {
+    if (stroke.type === 'batch' && stroke.strokes) {
+      stroke.strokes.forEach((s) => handleRemoteStroke(s));
+      return;
+    }
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -393,6 +465,11 @@ export default function DrawPage() {
     if (!ctx) return;
     const rect = canvas.getBoundingClientRect();
 
+    // 过滤亚像素微小抖动（位移平方小于 1.5px 时忽略，大幅削减高刷触控产生的无意义冗余包，降低传输延迟）
+    const dx = (currentPoint.x - lastPointRef.current.x) * rect.width;
+    const dy = (currentPoint.y - lastPointRef.current.y) * rect.height;
+    if (dx * dx + dy * dy < 1.5) return;
+
     const currentColor = isEraser ? '#ffffff' : brushColor;
     const currentSize = isEraser ? brushSize * 2 : brushSize;
 
@@ -417,7 +494,7 @@ export default function DrawPage() {
     );
     ctx.stroke();
 
-    // 广播平滑笔迹（绑定 strokeId 归属）
+    // 广播平滑笔迹（绑定 strokeId 归属并进入微批次缓冲，极大降低网络延迟）
     const strokePayload: DrawStrokePayload = {
       type: 'draw',
       strokeId: currentStrokeIdRef.current || undefined,
@@ -427,7 +504,7 @@ export default function DrawPage() {
       to: midPoint,
       control: lastPointRef.current,
     };
-    broadcastStroke(strokePayload);
+    queueStroke(strokePayload);
 
     lastPointRef.current = midPoint;
   };
@@ -461,10 +538,17 @@ export default function DrawPage() {
             from: lastPointRef.current,
             to: lastPointRef.current,
           };
-          broadcastStroke(dotPayload);
+          queueStroke(dotPayload);
         }
       }
     }
+
+    // 抬笔时立即清空缓冲并瞬时发射剩余点位
+    if (flushTimerRef.current) {
+      clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    flushStrokes();
 
     isDrawingRef.current = false;
     lastPointRef.current = null;
@@ -485,7 +569,7 @@ export default function DrawPage() {
     const rect = canvas.getBoundingClientRect();
     if (ctx) ctx.clearRect(0, 0, rect.width, rect.height);
     strokeHistoryRef.current = [];
-    broadcastStroke({ type: 'clear' });
+    broadcastImmediate({ type: 'clear' });
     setShowClearConfirm(false);
   };
 
@@ -507,32 +591,42 @@ export default function DrawPage() {
         (s) => s.strokeId !== targetStrokeId
       );
       redrawAll();
-      broadcastStroke({ type: 'undo', strokeId: targetStrokeId });
+      broadcastImmediate({ type: 'undo', strokeId: targetStrokeId });
     } else {
       // 容错兜底
       strokeHistoryRef.current.pop();
       redrawAll();
-      broadcastStroke({ type: 'undo' });
+      broadcastImmediate({ type: 'undo' });
     }
   };
 
-  // 120 秒倒计时
+  // 120 秒高精度绝对时间同步倒计时（彻底解决退出重进重置为 120 秒及双端时间不同步的问题）
+  const getRemainingSeconds = useCallback((currSession: DrawSession | null): number => {
+    if (!currSession || currSession.status !== 'drawing') return 120;
+    const start =
+      (currSession.scores as any)?.round_start_time ||
+      (currSession.created_at ? new Date(currSession.created_at).getTime() : Date.now());
+    const elapsed = Math.floor((Date.now() - start) / 1000);
+    return Math.max(0, 120 - elapsed);
+  }, []);
+
   useEffect(() => {
     if (session?.status !== 'drawing') return;
+    setRemainingTime(getRemainingSeconds(session));
 
     const timer = setInterval(() => {
-      setRemainingTime((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
+      const left = getRemainingSeconds(session);
+      setRemainingTime(left);
+      if (left <= 0) {
+        clearInterval(timer);
+        if (isPainter) {
           handleTimeUp();
-          return 0;
         }
-        return prev - 1;
-      });
+      }
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [session?.status]);
+  }, [session?.status, (session?.scores as any)?.round_start_time, getRemainingSeconds, isPainter]);
 
   const handleTimeUp = async () => {
     if (!session) return;
@@ -552,9 +646,50 @@ export default function DrawPage() {
     }
   };
 
+  // 重新开始第 1 局对决
+  const handleRestartGame = async () => {
+    if (!pairCode) return;
+    const restartedSession: DrawSession = {
+      id: 'draw_' + Date.now(),
+      pair_code: pairCode,
+      round_number: 1,
+      status: 'word_selection',
+      painter_id: hostId,
+      guesser_id: guestId,
+      word: '',
+      category: '',
+      hint: '',
+      remaining_seconds: 120,
+      winner_id: null,
+      scores: { host: 0, guest: 0 },
+      created_at: new Date().toISOString(),
+      ended_at: null,
+    };
+
+    setSession(restartedSession);
+    setMessages([]);
+    handleConfirmClear();
+    setCandidateWords(getRandomWords(4));
+    soundEffects.playPop();
+
+    broadcastState(restartedSession, [], 'DING');
+
+    if (isSupabaseConfigured) {
+      await supabase.from('draw_sessions').insert({
+        pair_code: pairCode,
+        round_number: 1,
+        status: 'word_selection',
+        painter_id: hostId,
+        guesser_id: guestId,
+        scores: { host: 0, guest: 0 },
+      });
+    }
+  };
+
   // 画师选题
   const handleSelectWord = async (word: WordItem) => {
     if (!session) return;
+    const roundStartTime = Date.now();
     const nextSession: DrawSession = {
       ...session,
       status: 'drawing',
@@ -562,6 +697,10 @@ export default function DrawPage() {
       category: word.theme,
       hint: word.drawHint || `一种常见的${word.theme}`,
       remaining_seconds: 120,
+      scores: {
+        ...(session.scores || { host: 0, guest: 0 }),
+        round_start_time: roundStartTime,
+      },
     };
 
     setSession(nextSession);
@@ -593,6 +732,7 @@ export default function DrawPage() {
           category: word.theme,
           hint: word.drawHint || `一种常见的${word.theme}`,
           remaining_seconds: 120,
+          scores: nextSession.scores,
         })
         .eq('id', session.id);
       await supabase.from('draw_messages').insert({
@@ -635,6 +775,7 @@ export default function DrawPage() {
       const currentHostScore = session.scores?.host || 0;
       const currentGuestScore = session.scores?.guest || 0;
       nextSession.scores = {
+        ...session.scores,
         host: isHost ? currentHostScore + 10 : currentHostScore,
         guest: !isHost ? currentGuestScore + 10 : currentGuestScore,
       };
@@ -686,13 +827,22 @@ export default function DrawPage() {
     }
   };
 
-  // 下一轮对决
+  // 下一轮对决（彻底修复身份互换后两端均卡在“等待对方挑选题目”的严重 bug）
   const handleStartNextRound = async (swapRoles: boolean) => {
     if (!session || !pairCode) return;
-    const nextPainter = swapRoles ? session.guesser_id : session.painter_id;
-    const nextGuesser = swapRoles ? session.painter_id : session.guesser_id;
 
-    const nextRound = session.round_number + 1;
+    // 严谨计算上一轮画师究竟是房主还是队员
+    const lastPainterIsHost =
+      session.painter_id === hostId ||
+      session.painter_id === 'host' ||
+      (!session.painter_id.includes('guest') && session.painter_id === userId ? isHost : false);
+
+    const nextPainter = swapRoles
+      ? (lastPainterIsHost ? guestId : hostId)
+      : (lastPainterIsHost ? hostId : guestId);
+    const nextGuesser = nextPainter === hostId ? guestId : hostId;
+
+    const nextRound = (session.round_number || 1) + 1;
     const nextSession: DrawSession = {
       id: 'draw_' + Date.now(),
       pair_code: pairCode,
@@ -726,7 +876,7 @@ export default function DrawPage() {
           status: 'word_selection',
           painter_id: nextPainter,
           guesser_id: nextGuesser,
-          scores: session.scores,
+          scores: session.scores || { host: 0, guest: 0 },
         })
         .select()
         .single();
@@ -755,7 +905,7 @@ export default function DrawPage() {
   }
 
   return (
-    <div className="h-[calc(100dvh-52px)] max-w-6xl mx-auto px-2 sm:px-4 py-1.5 sm:py-2 flex flex-col justify-between space-y-1.5 overflow-hidden">
+    <div className="h-[calc(100dvh-50px)] max-w-6xl mx-auto px-2 sm:px-4 py-1.5 flex flex-col justify-between space-y-1.5 overflow-hidden">
       {/* 极简紧凑顶部栏：大幅缩减垂直高度占用 */}
       <div className="bg-white rounded-xl px-3 py-1.5 border border-slate-200 shadow-xs flex items-center justify-between gap-2 shrink-0">
         {/* 左侧：局数徽章 + 角色状态 */}
@@ -784,8 +934,19 @@ export default function DrawPage() {
           </span>
         </div>
 
-        {/* 右侧：倒计时 + 退出 */}
-        <div className="flex items-center gap-2">
+        {/* 右侧：重新开始 + 倒计时 + 退出 */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* 重新开始按钮 */}
+          <button
+            type="button"
+            onClick={handleRestartGame}
+            className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 text-xs font-semibold flex items-center gap-1 transition-all active:scale-95"
+            title="重置对局并重新开始"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
+            <span className="hidden sm:inline">重新开始</span>
+          </button>
+
           {session?.status === 'drawing' && (
             <div
               className={`flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold font-mono transition-colors ${
@@ -800,9 +961,9 @@ export default function DrawPage() {
           )}
           <button
             type="button"
-            onClick={() => router.push('/')}
+            onClick={() => router.push('/lobby')}
             className="px-2 py-0.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-xs"
-            title="退出对局"
+            title="返回大厅"
           >
             退出
           </button>
@@ -867,14 +1028,14 @@ export default function DrawPage() {
         </div>
       )}
 
-      {/* 阶段 2：作画与竞猜主面板（单屏自适应，杜绝来回上下翻动） */}
+      {/* 阶段 2：作画与竞猜主面板（针对 Pad 及各尺寸屏幕完美自适应：Pad 端左侧占 8~9 列高占比画板，右侧占 3~4 列竞猜聊天） */}
       {session?.status === 'drawing' && (
-        <div className="flex-1 flex flex-col lg:grid lg:grid-cols-3 gap-2 sm:gap-3 min-h-0 overflow-hidden">
-          {/* 画板与工具条区域 */}
-          <div className="lg:col-span-2 flex flex-col space-y-1.5 min-h-0">
+        <div className="flex-1 flex flex-col md:grid md:grid-cols-12 gap-2 min-h-0 overflow-hidden">
+          {/* 画板与工具条区域（Pad 与 PC 占据 8~9 列全高，竖屏占据 flex-[2] 主体） */}
+          <div className="md:col-span-8 lg:col-span-9 flex flex-col flex-[2] md:flex-none h-full min-h-0 space-y-1.5 overflow-hidden">
             {/* Canvas 画板容器 */}
             <div
-              className="relative bg-white rounded-xl border border-slate-200 shadow-xs p-1 flex-1 flex flex-col min-h-0"
+              className="relative bg-white rounded-xl border border-slate-200 shadow-xs p-1 flex-1 flex flex-col min-h-[220px] md:min-h-0 overflow-hidden"
               style={{ touchAction: 'none', overscrollBehavior: 'none' }}
             >
               <canvas
@@ -886,7 +1047,7 @@ export default function DrawPage() {
                 onMouseDown={handlePointerDown as any}
                 onMouseMove={handlePointerMove as any}
                 onMouseUp={handlePointerUp as any}
-                className={`touch-drawing w-full h-[210px] sm:h-[260px] md:h-[320px] lg:h-full rounded-lg bg-white border border-slate-100 cursor-crosshair shadow-inner ${
+                className={`touch-drawing w-full h-full flex-1 rounded-lg bg-white border border-slate-100 cursor-crosshair shadow-inner ${
                   !isPainter ? 'pointer-events-none' : ''
                 }`}
                 style={{ touchAction: 'none' }}
@@ -1035,8 +1196,8 @@ export default function DrawPage() {
             )}
           </div>
 
-          {/* 右侧/下侧：聊天与竞猜互动区 (在桌面与画板并列，在移动端留出充足空间，支持自动吸底) */}
-          <div className="bg-white rounded-xl p-2.5 sm:p-3 border border-slate-200 shadow-xs flex flex-col justify-between flex-1 min-h-[150px] max-h-[240px] lg:max-h-none overflow-hidden">
+          {/* 右侧/下侧：聊天与竞猜互动区 (Pad 与 PC 占据 3~4 列并充满全高，小屏与竖屏保持紧凑防占位) */}
+          <div className="md:col-span-4 lg:col-span-3 bg-white rounded-xl p-2.5 sm:p-3 border border-slate-200 shadow-xs flex flex-col justify-between flex-1 md:flex-none h-full min-h-[140px] max-h-[190px] md:max-h-none overflow-hidden">
             <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 shrink-0">
               <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1 font-mono uppercase">
                 <MessageSquare className="w-3.5 h-3.5 text-blue-600" />

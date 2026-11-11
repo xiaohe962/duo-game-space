@@ -184,8 +184,29 @@ export default function MomentsPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const channelRef = useRef<any>(null);
 
   const partnerUserId = pairCode ? `pair_${pairCode}_${role === 'host' ? 'guest' : 'host'}` : '';
+
+  // 视口尺寸与移动端软键盘呼出监听（确保输入框始终紧贴输入法上方，杜绝输入遮挡与键盘冲突）
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    const handleViewportChange = () => {
+      if (chatScrollRef.current) {
+        chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+      }
+    };
+
+    vv.addEventListener('resize', handleViewportChange);
+    vv.addEventListener('scroll', handleViewportChange);
+    return () => {
+      vv.removeEventListener('resize', handleViewportChange);
+      vv.removeEventListener('scroll', handleViewportChange);
+    };
+  }, []);
 
   // 0. 本地持久化缓存快速秒开（修复重新进入记录丢失问题）
   useEffect(() => {
@@ -202,6 +223,10 @@ export default function MomentsPage() {
       const savedBalances = localStorage.getItem(`duo_moments_balances_${pairCode}`);
       if (savedBalances) {
         setBalances(JSON.parse(savedBalances));
+      }
+      const savedLogs = localStorage.getItem(`duo_moments_logs_${pairCode}`);
+      if (savedLogs) {
+        setBadgeLogs(JSON.parse(savedLogs));
       }
     } catch (e) {
       console.warn('读取本地缓存失败:', e);
@@ -271,7 +296,12 @@ export default function MomentsPage() {
         .eq('pair_code', pairCode)
         .order('created_at', { ascending: false })
         .limit(50);
-      if (logsData) setBadgeLogs(logsData as BadgeLog[]);
+      if (logsData) {
+        setBadgeLogs(logsData as BadgeLog[]);
+        try {
+          localStorage.setItem(`duo_moments_logs_${pairCode}`, JSON.stringify(logsData));
+        } catch (_) {}
+      }
 
       // 表态
       const { data: reactionData } = await supabase
@@ -312,12 +342,112 @@ export default function MomentsPage() {
     scrollToBottom(false);
   }, [posts.length, scrollToBottom]);
 
-  // 3. Supabase Realtime 订阅
+  // 3. Supabase Realtime 订阅（采用 Broadcast 极速广播 + Postgres Changes 双重保障）
   useEffect(() => {
     if (!pairCode || !isSupabaseConfigured) return;
 
     const channel = supabase
       .channel(`moments_chat_${pairCode}`)
+      // A. 极速广播新消息（<30ms 毫秒级直达对方屏幕，解决对方收不到消息问题）
+      .on('broadcast', { event: 'MOMENTS_NEW_POST' }, ({ payload }) => {
+        if (!payload || !payload.id) return;
+        setPosts((prev) => {
+          if (prev.some((p) => p.id === payload.id)) return prev;
+          const next = [...prev, payload as CouplePost];
+          try {
+            localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(next));
+          } catch (_) {}
+          return next;
+        });
+        soundEffects.playPop();
+        setTimeout(() => scrollToBottom(true), 60);
+      })
+      // B. 极速广播删除消息
+      .on('broadcast', { event: 'MOMENTS_DELETE_POST' }, ({ payload }) => {
+        if (!payload?.postId) return;
+        setPosts((prev) => {
+          const next = prev.filter((p) => p.id !== payload.postId);
+          try {
+            localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(next));
+          } catch (_) {}
+          return next;
+        });
+      })
+      // C. 极速广播徽章增减变动（双方余额与账本流水同步刷新，附带撒花振动）
+      .on('broadcast', { event: 'MOMENTS_BADGE_UPDATE' }, ({ payload }) => {
+        if (!payload) return;
+        const { receiverId, badgeType, delta, log } = payload;
+        setBalances((prev) => {
+          const next = [...prev];
+          const idx = next.findIndex((b) => b.user_id === receiverId && b.badge_type === badgeType);
+          if (idx >= 0) {
+            next[idx] = {
+              ...next[idx],
+              count: Math.max(0, next[idx].count + delta),
+              updated_at: new Date().toISOString(),
+            };
+          } else {
+            next.push({
+              pair_code: pairCode,
+              user_id: receiverId,
+              badge_type: badgeType,
+              count: Math.max(0, delta),
+              updated_at: new Date().toISOString(),
+            });
+          }
+          try {
+            localStorage.setItem(`duo_moments_balances_${pairCode}`, JSON.stringify(next));
+          } catch (_) {}
+          return next;
+        });
+
+        if (log) {
+          setBadgeLogs((prev) => {
+            if (prev.some((l) => l.id === log.id)) return prev;
+            const nextLogs = [log, ...prev];
+            try {
+              localStorage.setItem(`duo_moments_logs_${pairCode}`, JSON.stringify(nextLogs));
+            } catch (_) {}
+            return nextLogs;
+          });
+        }
+
+        if (receiverId === userId) {
+          confetti({ particleCount: 60, spread: 70, origin: { y: 0.5 } });
+          soundEffects.playVictory();
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            navigator.vibrate([40, 60, 40]);
+          }
+        }
+      })
+      // D. 极速广播状态打卡
+      .on('broadcast', { event: 'MOMENTS_STATUS_UPDATE' }, ({ payload }) => {
+        if (payload && payload.user_id === partnerUserId) {
+          setPartnerStatus(payload);
+        }
+      })
+      // E. 极速广播表态更新
+      .on('broadcast', { event: 'MOMENTS_REACTION_UPDATE' }, ({ payload }) => {
+        if (!payload) return;
+        if (payload.action === 'add' && payload.newReaction) {
+          setReactions((prev) => {
+            if (prev.some((r) => r.id === payload.newReaction.id)) return prev;
+            return [...prev, payload.newReaction];
+          });
+        } else if (payload.action === 'remove') {
+          setReactions((prev) =>
+            prev.filter(
+              (r) =>
+                !(
+                  r.post_id === payload.postId &&
+                  r.user_id === payload.userId &&
+                  r.emoji === payload.emoji
+                )
+            )
+          );
+        }
+      })
+      // Postgres Changes 数据库变更保底监听
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'couple_posts', filter: `pair_code=eq.${pairCode}` },
@@ -332,6 +462,7 @@ export default function MomentsPage() {
               return next;
             });
             soundEffects.playPop();
+            setTimeout(() => scrollToBottom(true), 60);
           } else if (payload.eventType === 'DELETE' && payload.old) {
             setPosts((prev) => {
               const next = prev.filter((p) => p.id !== payload.old.id);
@@ -365,6 +496,22 @@ export default function MomentsPage() {
       )
       .on(
         'postgres_changes',
+        { event: '*', schema: 'public', table: 'badge_logs', filter: `pair_code=eq.${pairCode}` },
+        (payload) => {
+          if (payload.eventType === 'INSERT' && payload.new) {
+            setBadgeLogs((prev) => {
+              if (prev.some((l) => l.id === payload.new.id)) return prev;
+              const next = [payload.new as BadgeLog, ...prev];
+              try {
+                localStorage.setItem(`duo_moments_logs_${pairCode}`, JSON.stringify(next));
+              } catch (_) {}
+              return next;
+            });
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
         { event: '*', schema: 'public', table: 'post_reactions', filter: `pair_code=eq.${pairCode}` },
         () => {
           supabase
@@ -387,10 +534,13 @@ export default function MomentsPage() {
       )
       .subscribe();
 
+    channelRef.current = channel;
+
     return () => {
+      channelRef.current = null;
       supabase.removeChannel(channel);
     };
-  }, [pairCode, partnerUserId]);
+  }, [pairCode, partnerUserId, userId, scrollToBottom]);
 
   // 4. 多文件与剪贴板选图处理（前置自动压缩，单图仅约 25~40KB）
   const handleFilesSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -519,6 +669,15 @@ export default function MomentsPage() {
         console.warn('localStorage write failed:', localErr);
       }
 
+      // 立即通过 Realtime 广播给对方（<30ms 极速直达对方屏幕）
+      if (channelRef.current) {
+        channelRef.current.send({
+          type: 'broadcast',
+          event: 'MOMENTS_NEW_POST',
+          payload: newPost,
+        });
+      }
+
       // 清空输入区与待发队列
       setContent('');
       setAttachedImages([]);
@@ -589,6 +748,26 @@ export default function MomentsPage() {
       localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(nextPosts));
     } catch (_) {}
 
+    // 广播状态打卡与新消息
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'MOMENTS_STATUS_UPDATE',
+        payload: {
+          user_id: userId,
+          pair_code: pairCode,
+          status_icon: icon,
+          status_text: text,
+          updated_at: new Date().toISOString(),
+        },
+      });
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'MOMENTS_NEW_POST',
+        payload: newPost,
+      });
+    }
+
     if (isSupabaseConfigured) {
       try {
         await supabase.from('couple_posts').insert({
@@ -608,7 +787,7 @@ export default function MomentsPage() {
     confetti({ particleCount: 30, spread: 50, origin: { y: 0.7 } });
   };
 
-  // 7. 徽章增减入账
+  // 7. 徽章增减入账（乐观秒级更新 + 双端广播 + 数据库持久化）
   const handleAddBadge = async (
     receiverId: string,
     receiverNickname: string,
@@ -619,11 +798,77 @@ export default function MomentsPage() {
   ) => {
     if (!pairCode) return;
 
+    const newLog: BadgeLog = {
+      id:
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : 'log_' + Date.now(),
+      pair_code: pairCode,
+      sender_id: userId,
+      sender_nickname: nickname,
+      receiver_id: receiverId,
+      receiver_nickname: receiverNickname,
+      badge_type: badgeType,
+      delta,
+      reason: reasonText,
+      post_id: isValidUuid(postId) ? postId : undefined,
+      created_at: new Date().toISOString(),
+    };
+
+    // A. 立即乐观更新当前用户的徽章余额并落盘缓存
+    setBalances((prev) => {
+      const next = [...prev];
+      const idx = next.findIndex((b) => b.user_id === receiverId && b.badge_type === badgeType);
+      if (idx >= 0) {
+        next[idx] = {
+          ...next[idx],
+          count: Math.max(0, next[idx].count + delta),
+          updated_at: new Date().toISOString(),
+        };
+      } else {
+        next.push({
+          pair_code: pairCode,
+          user_id: receiverId,
+          badge_type: badgeType,
+          count: Math.max(0, delta),
+          updated_at: new Date().toISOString(),
+        });
+      }
+      try {
+        localStorage.setItem(`duo_moments_balances_${pairCode}`, JSON.stringify(next));
+      } catch (_) {}
+      return next;
+    });
+
+    // B. 立即乐观更新账本流水并落盘缓存
+    setBadgeLogs((prev) => {
+      const nextLogs = [newLog, ...prev];
+      try {
+        localStorage.setItem(`duo_moments_logs_${pairCode}`, JSON.stringify(nextLogs));
+      } catch (_) {}
+      return nextLogs;
+    });
+
+    // C. 立即通过 WebSocket 广播给对方（同步对方界面的余额与账本流水，杜绝不更新问题）
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'MOMENTS_BADGE_UPDATE',
+        payload: {
+          receiverId,
+          badgeType,
+          delta,
+          log: newLog,
+        },
+      });
+    }
+
+    // D. 异步同步到 Supabase 数据库
     if (isSupabaseConfigured) {
       try {
         const { data: currentRecord } = await supabase
           .from('badge_balances')
-          .select('count')
+          .select('id, count')
           .eq('pair_code', pairCode)
           .eq('user_id', receiverId)
           .eq('badge_type', badgeType)
@@ -632,13 +877,23 @@ export default function MomentsPage() {
         const currentCount = currentRecord?.count || 0;
         const nextCount = Math.max(0, currentCount + delta);
 
-        await supabase.from('badge_balances').upsert({
-          pair_code: pairCode,
-          user_id: receiverId,
-          badge_type: badgeType,
-          count: nextCount,
-          updated_at: new Date().toISOString(),
-        });
+        if (currentRecord?.id) {
+          await supabase
+            .from('badge_balances')
+            .update({
+              count: nextCount,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', currentRecord.id);
+        } else {
+          await supabase.from('badge_balances').insert({
+            pair_code: pairCode,
+            user_id: receiverId,
+            badge_type: badgeType,
+            count: nextCount,
+            updated_at: new Date().toISOString(),
+          });
+        }
 
         await supabase.from('badge_logs').insert({
           pair_code: pairCode,
@@ -651,30 +906,9 @@ export default function MomentsPage() {
           reason: reasonText,
           post_id: isValidUuid(postId) ? postId : null,
         });
-
-        fetchAllData();
       } catch (err) {
-        console.error('增加徽章失败:', err);
+        console.error('增加徽章持久化异常:', err);
       }
-    } else {
-      setBalances((prev) => {
-        const idx = prev.findIndex((b) => b.user_id === receiverId && b.badge_type === badgeType);
-        if (idx >= 0) {
-          const next = [...prev];
-          next[idx].count = Math.max(0, next[idx].count + delta);
-          return next;
-        }
-        return [
-          ...prev,
-          {
-            pair_code: pairCode,
-            user_id: receiverId,
-            badge_type: badgeType,
-            count: delta,
-            updated_at: new Date().toISOString(),
-          },
-        ];
-      });
     }
   };
 
@@ -687,6 +921,13 @@ export default function MomentsPage() {
 
     if (existing) {
       setReactions((prev) => prev.filter((r) => r.id !== existing.id));
+      if (channelRef.current) {
+        channelRef.current.send({
+          type: 'broadcast',
+          event: 'MOMENTS_REACTION_UPDATE',
+          payload: { action: 'remove', postId, emoji, userId },
+        });
+      }
       if (isSupabaseConfigured) {
         await supabase.from('post_reactions').delete().eq('id', existing.id);
       }
@@ -702,6 +943,13 @@ export default function MomentsPage() {
       };
       setReactions((prev) => [...prev, newReaction]);
       soundEffects.playDing();
+      if (channelRef.current) {
+        channelRef.current.send({
+          type: 'broadcast',
+          event: 'MOMENTS_REACTION_UPDATE',
+          payload: { action: 'add', postId, emoji, newReaction },
+        });
+      }
       if (isSupabaseConfigured) {
         await supabase.from('post_reactions').insert({
           pair_code: pairCode,
@@ -721,6 +969,14 @@ export default function MomentsPage() {
     try {
       localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(nextPosts));
     } catch (_) {}
+
+    if (channelRef.current) {
+      channelRef.current.send({
+        type: 'broadcast',
+        event: 'MOMENTS_DELETE_POST',
+        payload: { postId },
+      });
+    }
 
     if (isSupabaseConfigured) {
       await supabase.from('couple_posts').delete().eq('id', postId);

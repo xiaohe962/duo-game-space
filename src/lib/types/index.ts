@@ -138,6 +138,8 @@ export interface DrawSession {
   scores: {
     host: number;
     guest: number;
+    round_start_time?: number;
+    [key: string]: any;
   };
   created_at: string;
   ended_at: string | null;
@@ -161,11 +163,12 @@ export interface DrawStrokePoint {
 }
 
 export interface DrawStrokePayload {
-  type: 'draw' | 'clear' | 'undo';
+  type: 'draw' | 'clear' | 'undo' | 'batch';
   strokeId?: string; // 笔划唯一 ID，用于多点成笔撤销
   color?: string;
   size?: number;
   from?: DrawStrokePoint;
   to?: DrawStrokePoint;
   control?: DrawStrokePoint; // 贝塞尔控制点
+  strokes?: DrawStrokePayload[]; // 批量笔迹聚合，用于网络传输抗压
 }
