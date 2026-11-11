@@ -11,7 +11,6 @@ import {
   Copy,
   Check,
   ArrowRight,
-  ShieldCheck,
   Radio,
   UserCheck,
   Info,
@@ -234,15 +233,6 @@ export default function LobbyPage() {
             </div>
           );
         })}
-      </div>
-
-      {/* 底部极简漫游提示 */}
-      <div className="rounded-xl bg-white border border-slate-200 px-3.5 py-2 text-xs text-slate-500 flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-[11px]">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-          <span>跨设备实时同步：任意设备输入房间码即刻秒级重连。</span>
-        </span>
-        <span className="text-[10px] font-mono text-slate-400">DUOSPACE v2.1</span>
       </div>
 
       {/* 感叹号展开的丰富简介与玩法规则弹窗 */}

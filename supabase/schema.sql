@@ -203,3 +203,32 @@ CREATE POLICY "Allow public read-write for guess_questions" ON public.guess_ques
 CREATE POLICY "Allow public read-write for guess_records" ON public.guess_records FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read-write for draw_sessions" ON public.draw_sessions FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read-write for draw_messages" ON public.draw_messages FOR ALL USING (true) WITH CHECK (true);
+
+-- 8. 存储桶配置：chat-media（用于多媒体聊天图片与手绘涂鸦，支持公开上传与读取）
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('chat-media', 'chat-media', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Allow public select on chat-media'
+    ) THEN
+        CREATE POLICY "Allow public select on chat-media" ON storage.objects FOR SELECT USING (bucket_id = 'chat-media');
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Allow public insert on chat-media'
+    ) THEN
+        CREATE POLICY "Allow public insert on chat-media" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'chat-media');
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Allow public update on chat-media'
+    ) THEN
+        CREATE POLICY "Allow public update on chat-media" ON storage.objects FOR UPDATE USING (bucket_id = 'chat-media');
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Allow public delete on chat-media'
+    ) THEN
+        CREATE POLICY "Allow public delete on chat-media" ON storage.objects FOR DELETE USING (bucket_id = 'chat-media');
+    END IF;
+END $$;

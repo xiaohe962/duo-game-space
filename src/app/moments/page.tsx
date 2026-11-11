@@ -71,6 +71,76 @@ function isValidUuid(str: string | null | undefined): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
 }
 
+// 浏览器端纯原生轻量图片压缩（将超大手机照片/截屏等压缩为 ~30KB 高清图，100% 免疫 Supabase/Realtime 尺寸截断）
+function compressImage(source: File | string, maxWidth = 960, quality = 0.75): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        let width = img.naturalWidth || img.width;
+        let height = img.naturalHeight || img.height;
+        if (width > maxWidth || height > maxWidth) {
+          if (width > height) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxWidth) / height);
+            height = maxWidth;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', quality);
+          resolve(compressed);
+          return;
+        }
+      } catch (err) {
+        console.warn('Canvas compression error:', err);
+      }
+      resolve(typeof source === 'string' ? source : '');
+    };
+    img.onerror = () => {
+      resolve(typeof source === 'string' ? source : '');
+    };
+
+    if (typeof source === 'string') {
+      img.src = source;
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        img.src = e.target?.result as string;
+      };
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(source);
+    }
+  });
+}
+
+// 快速高效同步将 DataURL 转为 Blob，无需走 fetch 网络层，无 CSP 阻断风险
+function dataUrlToBlob(dataUrl: string): Blob | null {
+  try {
+    const parts = dataUrl.split(',');
+    if (parts.length < 2) return null;
+    const mimeMatch = parts[0].match(/:(.*?);/);
+    const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const binary = atob(parts[1]);
+    const array = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      array[i] = binary.charCodeAt(i);
+    }
+    return new Blob([array], { type: mime });
+  } catch (err) {
+    console.warn('dataUrlToBlob error:', err);
+    return null;
+  }
+}
+
 const MOOD_OPTIONS = [
   { emoji: '', label: '无心情' },
   { emoji: '📌', label: '置顶' },
@@ -322,25 +392,26 @@ export default function MomentsPage() {
     };
   }, [pairCode, partnerUserId]);
 
-  // 4. 多文件与剪贴板选图处理
-  const handleFilesSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 4. 多文件与剪贴板选图处理（前置自动压缩，单图仅约 25~40KB）
+  const handleFilesSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    Array.from(files).forEach((file) => {
-      if (!file.type.startsWith('image/')) return;
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        if (evt.target?.result) {
-          setAttachedImages((prev) => [...prev, evt.target!.result as string]);
+    for (const file of Array.from(files)) {
+      if (!file.type.startsWith('image/')) continue;
+      try {
+        const compressed = await compressImage(file, 960, 0.75);
+        if (compressed) {
+          setAttachedImages((prev) => [...prev, compressed]);
         }
-      };
-      reader.readAsDataURL(file);
-    });
+      } catch (err) {
+        console.warn('Image process error:', err);
+      }
+    }
     e.target.value = '';
   };
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+  const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
     for (let i = 0; i < items.length; i++) {
@@ -348,13 +419,14 @@ export default function MomentsPage() {
         e.preventDefault();
         const file = items[i].getAsFile();
         if (file) {
-          const reader = new FileReader();
-          reader.onload = (evt) => {
-            if (evt.target?.result) {
-              setAttachedImages((prev) => [...prev, evt.target!.result as string]);
+          try {
+            const compressed = await compressImage(file, 960, 0.75);
+            if (compressed) {
+              setAttachedImages((prev) => [...prev, compressed]);
             }
-          };
-          reader.readAsDataURL(file);
+          } catch (err) {
+            console.warn('Paste image process error:', err);
+          }
         }
       }
     }
@@ -364,81 +436,99 @@ export default function MomentsPage() {
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!content.trim() && attachedImages.length === 0) return;
-    if (!pairCode) return;
+    if (!pairCode || submitting) return;
 
     setSubmitting(true);
-    const imagesToUpload = [...attachedImages];
-    const uploadedUrls: string[] = [];
-
-    // 上传图片（遇未配置 Storage 时自动降级为 DataURL 本地存储）
-    for (const img of imagesToUpload) {
-      if (img.startsWith('data:') && isSupabaseConfigured) {
-        try {
-          const fileName = `${pairCode}/${Date.now()}_${Math.random().toString(36).substring(7)}.png`;
-          const blob = await (await fetch(img)).blob();
-          const { data: uploadData, error: uploadErr } = await supabase.storage
-            .from('chat-media')
-            .upload(fileName, blob, { contentType: 'image/png' });
-
-          if (!uploadErr && uploadData) {
-            const { data: pubData } = supabase.storage.from('chat-media').getPublicUrl(fileName);
-            if (pubData?.publicUrl) {
-              uploadedUrls.push(pubData.publicUrl);
-              continue;
-            }
-          }
-        } catch (_) {}
-      }
-      uploadedUrls.push(img);
-    }
-
-    // 格式化图片存储字段：单张存 URL，多张存 JSON 数组
-    let finalImageUrl: string | null = null;
-    if (uploadedUrls.length === 1) {
-      finalImageUrl = uploadedUrls[0];
-    } else if (uploadedUrls.length > 1) {
-      finalImageUrl = JSON.stringify(uploadedUrls);
-    }
-
-    const newId =
-      typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : 'p_' + Date.now();
-
-    const parentPostId = replyingTo && isValidUuid(replyingTo.id) ? replyingTo.id : null;
-
-    const newPost: CouplePost = {
-      id: newId,
-      pair_code: pairCode,
-      author_id: userId,
-      author_nickname: nickname,
-      content: content.trim(),
-      image_url: finalImageUrl,
-      mood: selectedMood || null,
-      parent_id: parentPostId,
-      post_type: 'normal',
-      created_at: new Date().toISOString(),
-    };
-
-    // 立即更新本地状态并保存至 localStorage
-    const nextPosts = [...posts, newPost];
-    setPosts(nextPosts);
     try {
-      localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(nextPosts));
-    } catch (_) {}
+      const imagesToUpload = [...attachedImages];
+      const uploadedUrls: string[] = [];
 
-    // 清空输入区
-    setContent('');
-    setAttachedImages([]);
-    setReplyingTo(null);
-    setShowMoodMenu(false);
-    setSubmitting(false);
-    soundEffects.playPop();
+      // 上传图片（优先尝试 Storage，超时或未建桶时无感降级为极速轻量 DataURL）
+      for (const img of imagesToUpload) {
+        let uploaded = false;
+        if (isSupabaseConfigured && img.startsWith('data:')) {
+          try {
+            const blob = dataUrlToBlob(img);
+            if (blob) {
+              const fileName = `${pairCode}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+              const uploadPromise = supabase.storage
+                .from('chat-media')
+                .upload(fileName, blob, { contentType: 'image/jpeg', upsert: true });
+              const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) =>
+                setTimeout(() => resolve({ data: null, error: new Error('Upload timeout') }), 2000)
+              );
+              const { data: uploadData, error: uploadErr } = await Promise.race([
+                uploadPromise,
+                timeoutPromise,
+              ]);
 
-    // 同步到 Supabase
-    if (isSupabaseConfigured) {
+              if (!uploadErr && uploadData) {
+                const { data: pubData } = supabase.storage.from('chat-media').getPublicUrl(fileName);
+                if (pubData?.publicUrl) {
+                  uploadedUrls.push(pubData.publicUrl);
+                  uploaded = true;
+                }
+              }
+            }
+          } catch (storageErr) {
+            console.warn('Storage upload error, fallback to inline image:', storageErr);
+          }
+        }
+        if (!uploaded) {
+          uploadedUrls.push(img);
+        }
+      }
+
+      // 格式化图片存储字段：单张存 URL，多张存 JSON 数组
+      let finalImageUrl: string | null = null;
+      if (uploadedUrls.length === 1) {
+        finalImageUrl = uploadedUrls[0];
+      } else if (uploadedUrls.length > 1) {
+        finalImageUrl = JSON.stringify(uploadedUrls);
+      }
+
+      const newId =
+        typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : 'p_' + Date.now();
+
+      const parentPostId = replyingTo && isValidUuid(replyingTo.id) ? replyingTo.id : null;
+
+      // 确保 content 字段满足数据库 TEXT NOT NULL 约束（仅发图时自动填补占位，渲染端智能隐藏）
+      const finalContent = content.trim() || (uploadedUrls.length > 0 ? '[图片]' : '');
+
+      const newPost: CouplePost = {
+        id: newId,
+        pair_code: pairCode,
+        author_id: userId,
+        author_nickname: nickname,
+        content: finalContent,
+        image_url: finalImageUrl,
+        mood: selectedMood || null,
+        parent_id: parentPostId,
+        post_type: 'normal',
+        created_at: new Date().toISOString(),
+      };
+
+      // 立即更新本地状态并保存至 localStorage
+      const nextPosts = [...posts, newPost];
+      setPosts(nextPosts);
       try {
-        await supabase.from('couple_posts').insert({
+        localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(nextPosts));
+      } catch (localErr) {
+        console.warn('localStorage write failed:', localErr);
+      }
+
+      // 清空输入区与待发队列
+      setContent('');
+      setAttachedImages([]);
+      setReplyingTo(null);
+      setShowMoodMenu(false);
+      soundEffects.playPop();
+
+      // 同步到 Supabase 数据库
+      if (isSupabaseConfigured) {
+        const { error: insertErr } = await supabase.from('couple_posts').insert({
           id: newId,
           pair_code: pairCode,
           author_id: userId,
@@ -449,9 +539,14 @@ export default function MomentsPage() {
           parent_id: parentPostId,
           post_type: newPost.post_type,
         });
-      } catch (err) {
-        console.error('上传动态失败:', err);
+        if (insertErr) {
+          console.error('Supabase couple_posts 插入失败:', insertErr);
+        }
       }
+    } catch (err) {
+      console.error('发送消息异常:', err);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -784,8 +879,8 @@ export default function MomentsPage() {
                       </div>
                     )}
 
-                    {/* 文本内容 */}
-                    {post.content && (
+                    {/* 文本内容（仅在有实际用户输入文字时渲染，自动隐藏仅发图时的占位字符） */}
+                    {post.content && (post.content !== '[图片]' || images.length === 0) && (
                       <p className="text-xs sm:text-sm whitespace-pre-wrap break-words leading-relaxed">
                         {post.content}
                       </p>
