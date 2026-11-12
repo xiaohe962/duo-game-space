@@ -84,12 +84,16 @@ export default function BadgeLedgerModal({
 
   // 计算双方余额统计（兼容 pair_{code}_host 与 host/guest 标识）
   const getBalanceCount = (targetUid: string, bType: BadgeType) => {
+    if (!targetUid) return 0;
     const isTargetHost = targetUid.includes('host') || targetUid === 'host';
     const targetRole = isTargetHost ? 'host' : 'guest';
     const item = balances.find(
       (b) =>
+        b &&
         b.badge_type === bType &&
-        (b.user_id === targetUid || b.user_id === targetRole || b.user_id.endsWith('_' + targetRole))
+        (b.user_id === targetUid ||
+          b.user_id === targetRole ||
+          (typeof b.user_id === 'string' && b.user_id.endsWith('_' + targetRole)))
     );
     return item ? item.count : 0;
   };

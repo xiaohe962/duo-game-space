@@ -413,11 +413,17 @@ export default function MomentsPage() {
         }
 
         if (receiverId === userId) {
-          confetti({ particleCount: 60, spread: 70, origin: { y: 0.5 } });
-          soundEffects.playVictory();
-          if (typeof navigator !== 'undefined' && navigator.vibrate) {
-            navigator.vibrate([40, 60, 40]);
-          }
+          try {
+            confetti({ particleCount: 35, spread: 60, origin: { y: 0.5 }, ticks: 120 });
+          } catch (_) {}
+          try {
+            soundEffects.playVictory();
+          } catch (_) {}
+          try {
+            if (typeof navigator !== 'undefined' && navigator.vibrate) {
+              navigator.vibrate([30, 40, 30]);
+            }
+          } catch (_) {}
         }
       })
       // D. 极速广播状态打卡
@@ -542,7 +548,7 @@ export default function MomentsPage() {
     };
   }, [pairCode, partnerUserId, userId, scrollToBottom]);
 
-  // 4. 多文件与剪贴板选图处理（前置自动压缩，单图仅约 25~40KB）
+  // 4. 多文件与剪贴板选图处理（前置自动高效压缩，单图仅约 20~35KB）
   const handleFilesSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -550,7 +556,7 @@ export default function MomentsPage() {
     for (const file of Array.from(files)) {
       if (!file.type.startsWith('image/')) continue;
       try {
-        const compressed = await compressImage(file, 960, 0.75);
+        const compressed = await compressImage(file, 640, 0.65);
         if (compressed) {
           setAttachedImages((prev) => [...prev, compressed]);
         }
@@ -570,7 +576,7 @@ export default function MomentsPage() {
         const file = items[i].getAsFile();
         if (file) {
           try {
-            const compressed = await compressImage(file, 960, 0.75);
+            const compressed = await compressImage(file, 640, 0.65);
             if (compressed) {
               setAttachedImages((prev) => [...prev, compressed]);
             }
@@ -582,70 +588,40 @@ export default function MomentsPage() {
     }
   };
 
-  // 5. 发送聊天消息（支持多图 + 手绘涂鸦并发发送，持久化双写）
+  // 5. 发送聊天消息（支持多图 + 手绘涂鸦并发发送，瞬时乐观上屏 + 秒级广播）
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!content.trim() && attachedImages.length === 0) return;
     if (!pairCode || submitting) return;
 
     setSubmitting(true);
+    const imagesToUpload = [...attachedImages];
+    const currentContent = content;
+    const currentMood = selectedMood;
+    const currentReplyingTo = replyingTo;
+
+    // A. 瞬时清空输入框与缓存状态，让用户感觉 0 延迟
+    setContent('');
+    setAttachedImages([]);
+    setReplyingTo(null);
+    setShowMoodMenu(false);
+    soundEffects.playPop();
+
     try {
-      const imagesToUpload = [...attachedImages];
-      const uploadedUrls: string[] = [];
-
-      // 上传图片（优先尝试 Storage，超时或未建桶时无感降级为极速轻量 DataURL）
-      for (const img of imagesToUpload) {
-        let uploaded = false;
-        if (isSupabaseConfigured && img.startsWith('data:')) {
-          try {
-            const blob = dataUrlToBlob(img);
-            if (blob) {
-              const fileName = `${pairCode}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
-              const uploadPromise = supabase.storage
-                .from('chat-media')
-                .upload(fileName, blob, { contentType: 'image/jpeg', upsert: true });
-              const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) =>
-                setTimeout(() => resolve({ data: null, error: new Error('Upload timeout') }), 2000)
-              );
-              const { data: uploadData, error: uploadErr } = await Promise.race([
-                uploadPromise,
-                timeoutPromise,
-              ]);
-
-              if (!uploadErr && uploadData) {
-                const { data: pubData } = supabase.storage.from('chat-media').getPublicUrl(fileName);
-                if (pubData?.publicUrl) {
-                  uploadedUrls.push(pubData.publicUrl);
-                  uploaded = true;
-                }
-              }
-            }
-          } catch (storageErr) {
-            console.warn('Storage upload error, fallback to inline image:', storageErr);
-          }
-        }
-        if (!uploaded) {
-          uploadedUrls.push(img);
-        }
-      }
-
-      // 格式化图片存储字段：单张存 URL，多张存 JSON 数组
-      let finalImageUrl: string | null = null;
-      if (uploadedUrls.length === 1) {
-        finalImageUrl = uploadedUrls[0];
-      } else if (uploadedUrls.length > 1) {
-        finalImageUrl = JSON.stringify(uploadedUrls);
-      }
-
       const newId =
         typeof crypto !== 'undefined' && crypto.randomUUID
           ? crypto.randomUUID()
           : 'p_' + Date.now();
 
-      const parentPostId = replyingTo && isValidUuid(replyingTo.id) ? replyingTo.id : null;
+      const parentPostId = currentReplyingTo && isValidUuid(currentReplyingTo.id) ? currentReplyingTo.id : null;
+      const finalContent = currentContent.trim() || (imagesToUpload.length > 0 ? '[图片]' : '');
 
-      // 确保 content 字段满足数据库 TEXT NOT NULL 约束（仅发图时自动填补占位，渲染端智能隐藏）
-      const finalContent = content.trim() || (uploadedUrls.length > 0 ? '[图片]' : '');
+      let initialImageUrl: string | null = null;
+      if (imagesToUpload.length === 1) {
+        initialImageUrl = imagesToUpload[0];
+      } else if (imagesToUpload.length > 1) {
+        initialImageUrl = JSON.stringify(imagesToUpload);
+      }
 
       const newPost: CouplePost = {
         id: newId,
@@ -653,23 +629,24 @@ export default function MomentsPage() {
         author_id: userId,
         author_nickname: nickname,
         content: finalContent,
-        image_url: finalImageUrl,
-        mood: selectedMood || null,
+        image_url: initialImageUrl,
+        mood: currentMood || null,
         parent_id: parentPostId,
         post_type: 'normal',
         created_at: new Date().toISOString(),
       };
 
-      // 立即更新本地状态并保存至 localStorage
-      const nextPosts = [...posts, newPost];
-      setPosts(nextPosts);
-      try {
-        localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(nextPosts));
-      } catch (localErr) {
-        console.warn('localStorage write failed:', localErr);
-      }
+      // B. 立即乐观更新当前页面状态并落盘
+      setPosts((prev) => {
+        const next = [...prev, newPost];
+        try {
+          localStorage.setItem(`duo_moments_posts_${pairCode}`, JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
+      setTimeout(() => scrollToBottom(true), 40);
 
-      // 立即通过 Realtime 广播给对方（<30ms 极速直达对方屏幕，彻底解决对方收不到消息问题）
+      // C. 立即通过 Realtime 广播给对方（图片已压缩至 20~35KB，广播毫秒直达）
       const targetChannel = channelRef.current || supabase.channel(`moments_chat_${pairCode}`);
       targetChannel.send({
         type: 'broadcast',
@@ -677,30 +654,55 @@ export default function MomentsPage() {
         payload: newPost,
       });
 
-      // 清空输入区与待发队列
-      setContent('');
-      setAttachedImages([]);
-      setReplyingTo(null);
-      setShowMoodMenu(false);
-      soundEffects.playPop();
-
-      // 同步到 Supabase 数据库
-      if (isSupabaseConfigured) {
-        const { error: insertErr } = await supabase.from('couple_posts').insert({
-          id: newId,
-          pair_code: pairCode,
-          author_id: userId,
-          author_nickname: nickname,
-          content: newPost.content,
-          image_url: newPost.image_url,
-          mood: newPost.mood || null,
-          parent_id: parentPostId,
-          post_type: newPost.post_type,
-        });
-        if (insertErr) {
-          console.error('Supabase couple_posts 插入失败:', insertErr);
+      // D. 异步后台落库（尝试上传 Storage，未建桶或超时则无感降级为轻量 DataURL 存入数据库）
+      (async () => {
+        let finalImageUrl = initialImageUrl;
+        if (isSupabaseConfigured && imagesToUpload.length > 0) {
+          try {
+            const uploadTasks = imagesToUpload.map(async (img) => {
+              if (!img.startsWith('data:')) return img;
+              const blob = dataUrlToBlob(img);
+              if (!blob) return img;
+              const fileName = `${pairCode}/${Date.now()}_${Math.random().toString(36).substring(7)}.jpg`;
+              const uploadPromise = supabase.storage
+                .from('chat-media')
+                .upload(fileName, blob, { contentType: 'image/jpeg', upsert: true });
+              const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) =>
+                setTimeout(() => resolve({ data: null, error: new Error('Upload timeout') }), 800)
+              );
+              const { data: uploadData, error: uploadErr } = await Promise.race([
+                uploadPromise,
+                timeoutPromise,
+              ]);
+              if (!uploadErr && uploadData) {
+                const { data: pubData } = supabase.storage.from('chat-media').getPublicUrl(fileName);
+                if (pubData?.publicUrl) return pubData.publicUrl;
+              }
+              return img;
+            });
+            const resolvedUrls = await Promise.all(uploadTasks);
+            if (resolvedUrls.length === 1) {
+              finalImageUrl = resolvedUrls[0];
+            } else if (resolvedUrls.length > 1) {
+              finalImageUrl = JSON.stringify(resolvedUrls);
+            }
+          } catch (_) {}
         }
-      }
+
+        if (isSupabaseConfigured) {
+          await supabase.from('couple_posts').insert({
+            id: newId,
+            pair_code: pairCode,
+            author_id: userId,
+            author_nickname: nickname,
+            content: newPost.content,
+            image_url: finalImageUrl,
+            mood: newPost.mood || null,
+            parent_id: parentPostId,
+            post_type: newPost.post_type,
+          });
+        }
+      })();
     } catch (err) {
       console.error('发送消息异常:', err);
     } finally {
@@ -994,12 +996,16 @@ export default function MomentsPage() {
 
   // 徽章与小红花余额统计（兼容 pair_{code}_host 与 host/guest 标识）
   const getBadgeCountForUser = (targetUid: string, bType: BadgeType) => {
+    if (!targetUid) return 0;
     const isTargetHost = targetUid.includes('host') || targetUid === 'host';
     const targetRole = isTargetHost ? 'host' : 'guest';
     const item = balances.find(
       (b) =>
+        b &&
         b.badge_type === bType &&
-        (b.user_id === targetUid || b.user_id === targetRole || b.user_id.endsWith('_' + targetRole))
+        (b.user_id === targetUid ||
+          b.user_id === targetRole ||
+          (typeof b.user_id === 'string' && b.user_id.endsWith('_' + targetRole)))
     );
     return item ? item.count : 0;
   };

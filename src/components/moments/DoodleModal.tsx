@@ -179,7 +179,7 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
     const canvas = canvasRef.current;
     if (!canvas) return;
     try {
-      const maxWidth = 800;
+      const maxWidth = 540;
       const exportWidth = Math.min(maxWidth, canvas.width);
       const exportHeight = Math.round((canvas.height * exportWidth) / canvas.width);
       const offscreen = document.createElement('canvas');
@@ -190,13 +190,13 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, exportWidth, exportHeight);
         ctx.drawImage(canvas, 0, 0, exportWidth, exportHeight);
-        const dataUrl = offscreen.toDataURL('image/jpeg', 0.82);
+        const dataUrl = offscreen.toDataURL('image/jpeg', 0.68);
         onSaveDoodle(dataUrl);
       } else {
-        onSaveDoodle(canvas.toDataURL('image/jpeg', 0.82));
+        onSaveDoodle(canvas.toDataURL('image/jpeg', 0.68));
       }
     } catch (_) {
-      onSaveDoodle(canvas.toDataURL('image/jpeg', 0.8));
+      onSaveDoodle(canvas.toDataURL('image/jpeg', 0.65));
     }
     onClose();
   };

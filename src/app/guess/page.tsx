@@ -786,34 +786,12 @@ export default function GuessPage() {
                 <div className="flex items-center justify-between pb-2 border-b border-slate-100 mb-2">
                   <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5 uppercase font-mono">
                     <MessageCircle className="w-4 h-4 text-blue-600" />
-                    20 问进度 ({questions.length} / 20)
+                    提问记录 ({questions.length} 次提问)
                   </h3>
                   <span className="text-[11px] text-slate-400 font-mono">
                     错误猜测: {session.wrong_guesses_count || 0}
                   </span>
                 </div>
-
-                {/* 20 问可视化进度条 */}
-                <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden mb-3">
-                  <div
-                    className={`h-full transition-all duration-300 ${
-                      questions.length >= 20
-                        ? 'bg-rose-500'
-                        : questions.length >= 15
-                        ? 'bg-amber-500'
-                        : 'bg-blue-600'
-                    }`}
-                    style={{ width: `${Math.min(100, (questions.length / 20) * 100)}%` }}
-                  />
-                </div>
-
-                {/* 20 问用尽提示 */}
-                {questions.length >= 20 && (
-                  <div className="mb-3 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-center gap-2 animate-fade-in">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>20 次提问机会已全部用尽！请在右侧提交最终猜词，或选择认输揭晓答案。</span>
-                  </div>
-                )}
 
                 {/* 问答列表 */}
                 {questions.length === 0 ? (
@@ -948,19 +926,15 @@ export default function GuessPage() {
                   >
                     <input
                       type="text"
-                      disabled={questions.length >= 20 || submitting}
-                      placeholder={
-                        questions.length >= 20
-                          ? '20 次提问机会已耗尽，请提交最终猜词或认输...'
-                          : '向 TA 提问（例如：它能在水里生活吗？）...'
-                      }
+                      disabled={submitting}
+                      placeholder="向 TA 提问（例如：它能在水里生活吗？）..."
                       value={questionInput}
                       onChange={(e) => setQuestionInput(e.target.value)}
                       className="flex-1 px-3.5 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-slate-900 bg-slate-50 disabled:bg-slate-100 disabled:text-slate-400"
                     />
                     <button
                       type="submit"
-                      disabled={!questionInput.trim() || questions.length >= 20 || submitting}
+                      disabled={!questionInput.trim() || submitting}
                       className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 text-white text-xs font-semibold shadow-sm transition-all flex items-center gap-1"
                     >
                       <Send className="w-3.5 h-3.5" /> 提问
@@ -968,19 +942,17 @@ export default function GuessPage() {
                   </form>
 
                   {/* 快捷问题锦囊 */}
-                  {questions.length < 20 && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {QUICK_QUESTIONS.slice(0, 3).map((qq, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => handleAskQuestion(qq)}
-                          className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200 transition-colors"
-                        >
-                          + {qq}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {QUICK_QUESTIONS.slice(0, 3).map((qq, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => handleAskQuestion(qq)}
+                        className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200 transition-colors"
+                      >
+                        + {qq}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -1088,7 +1060,7 @@ export default function GuessPage() {
             <div>
               <span className="text-slate-400 block text-[11px] font-mono">提问次数</span>
               <strong className="text-xs font-bold text-slate-800 font-mono">
-                {questions.length} / 20
+                {questions.length} 次
               </strong>
             </div>
             <div>

@@ -83,6 +83,33 @@ export default function DrawPage() {
       (session.painter_id.includes('guest') && !isHost)
     : isHost;
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [canvasDimensions, setCanvasDimensions] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
+
+  // 严格按 4:3 黄金比例根据容器空间计算画布尺寸，保证多端绝对等比无变形
+  const updateCanvasDimensions = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const targetRatio = 4 / 3;
+    const padding = 10;
+    const availW = Math.max(100, rect.width - padding);
+    const availH = Math.max(100, rect.height - padding);
+
+    let w = availW;
+    let h = w / targetRatio;
+    if (h > availH) {
+      h = availH;
+      w = h * targetRatio;
+    }
+
+    setCanvasDimensions({ width: Math.round(w), height: Math.round(h) });
+  }, []);
 
   // 消息自动吸底
   useEffect(() => {
@@ -117,18 +144,31 @@ export default function DrawPage() {
   }, []);
 
   useEffect(() => {
-    calibrateCanvasResolution();
-    window.addEventListener('resize', calibrateCanvasResolution);
-    return () => window.removeEventListener('resize', calibrateCanvasResolution);
-  }, [calibrateCanvasResolution]);
+    updateCanvasDimensions();
+    const handleResize = () => {
+      updateCanvasDimensions();
+      calibrateCanvasResolution();
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [updateCanvasDimensions, calibrateCanvasResolution]);
 
-  // 当进入作画阶段且 Canvas 挂载后，自动执行物理尺寸校准
   useEffect(() => {
-    if (session?.status === 'drawing') {
-      const timer = setTimeout(calibrateCanvasResolution, 60);
+    if (canvasDimensions.width > 0 && canvasDimensions.height > 0) {
+      calibrateCanvasResolution();
+    }
+  }, [canvasDimensions, calibrateCanvasResolution]);
+
+  // 当进入作画阶段或尺寸变更时，自动执行物理尺寸校准
+  useEffect(() => {
+    if (session?.status === 'drawing' || session?.status === 'settled') {
+      const timer = setTimeout(() => {
+        updateCanvasDimensions();
+        calibrateCanvasResolution();
+      }, 50);
       return () => clearTimeout(timer);
     }
-  }, [session?.status, calibrateCanvasResolution]);
+  }, [session?.status, updateCanvasDimensions, calibrateCanvasResolution]);
 
   // 初始化或拉取现有对局
   const initOrFetchSession = useCallback(async () => {
@@ -246,11 +286,29 @@ export default function DrawPage() {
     });
 
     channel.on('broadcast', { event: 'GAME_STATE' }, ({ payload }) => {
-      if (payload.session) setSession(payload.session);
+      if (payload.session) {
+        if (
+          payload.session.status === 'word_selection' ||
+          payload.clearCanvas ||
+          (session && payload.session.round_number !== session.round_number)
+        ) {
+          strokeHistoryRef.current = [];
+          strokeBufferRef.current = [];
+          const canvas = canvasRef.current;
+          if (canvas) {
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.getBoundingClientRect();
+            if (ctx) ctx.clearRect(0, 0, rect.width, rect.height);
+          }
+        }
+        setSession(payload.session);
+      }
       if (payload.messages) setMessages(payload.messages);
       if (payload.event === 'CORRECT') {
         soundEffects.playVictory();
-        confetti({ particleCount: 150, spread: 80, origin: { y: 0.6 } });
+        try {
+          confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 }, ticks: 120 });
+        } catch (_) {}
       } else if (payload.event === 'DING') {
         soundEffects.playDing();
       }
@@ -331,7 +389,8 @@ export default function DrawPage() {
   const broadcastState = (
     nextSession: DrawSession,
     nextMessages: DrawMessage[],
-    event?: 'CORRECT' | 'DING'
+    event?: 'CORRECT' | 'DING',
+    clearCanvas?: boolean
   ) => {
     if (!pairCode) return;
     const targetChannel = channelRef.current || supabase.channel(`draw_realtime_${pairCode}`);
@@ -342,6 +401,7 @@ export default function DrawPage() {
         session: nextSession,
         messages: nextMessages,
         event,
+        clearCanvas,
       },
     });
   };
@@ -684,13 +744,21 @@ export default function DrawPage() {
       ended_at: null,
     };
 
+    strokeHistoryRef.current = [];
+    strokeBufferRef.current = [];
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      const rect = canvas.getBoundingClientRect();
+      if (ctx) ctx.clearRect(0, 0, rect.width, rect.height);
+    }
+
     setSession(restartedSession);
     setMessages([]);
-    handleConfirmClear();
     setCandidateWords(getRandomWords(4));
     soundEffects.playPop();
 
-    broadcastState(restartedSession, [], 'DING');
+    broadcastState(restartedSession, [], 'DING', true);
 
     if (isSupabaseConfigured) {
       await supabase.from('draw_sessions').insert({
@@ -755,9 +823,17 @@ export default function DrawPage() {
       },
     };
 
+    strokeHistoryRef.current = [];
+    strokeBufferRef.current = [];
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      const rect = canvas.getBoundingClientRect();
+      if (ctx) ctx.clearRect(0, 0, rect.width, rect.height);
+    }
+
     setSession(nextSession);
     setRemainingTime(120);
-    handleConfirmClear();
 
     const startMsg: DrawMessage = {
       id: 'm_' + Date.now(),
@@ -773,7 +849,7 @@ export default function DrawPage() {
     const nextMsgs = [...messages, startMsg];
     setMessages(nextMsgs);
 
-    broadcastState(nextSession, nextMsgs, 'DING');
+    broadcastState(nextSession, nextMsgs, 'DING', true);
 
     if (isSupabaseConfigured) {
       await supabase
@@ -846,7 +922,9 @@ export default function DrawPage() {
       nextMsgs.push(systemWinMsg);
 
       soundEffects.playVictory();
-      confetti({ particleCount: 160, spread: 80, origin: { y: 0.6 } });
+      try {
+        confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 }, ticks: 120 });
+      } catch (_) {}
     }
 
     setMessages(nextMsgs);
@@ -911,12 +989,20 @@ export default function DrawPage() {
       ended_at: null,
     };
 
+    strokeHistoryRef.current = [];
+    strokeBufferRef.current = [];
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      const rect = canvas.getBoundingClientRect();
+      if (ctx) ctx.clearRect(0, 0, rect.width, rect.height);
+    }
+
     setSession(nextSession);
     setMessages([]);
-    handleConfirmClear();
     setCandidateWords(getRandomWords(4));
 
-    broadcastState(nextSession, [], 'DING');
+    broadcastState(nextSession, [], 'DING', true);
 
     if (isSupabaseConfigured) {
       const { data } = await supabase
@@ -1104,35 +1190,47 @@ export default function DrawPage() {
       )}
 
       {/* 阶段 2：作画与竞猜主面板（针对 Pad 及各尺寸屏幕完美自适应：Pad 端左侧占 8~9 列高占比画板，右侧占 3~4 列竞猜聊天） */}
-      {session?.status === 'drawing' && (
+      {(session?.status === 'drawing' || session?.status === 'settled') && (
         <div className="flex-1 flex flex-col md:grid md:grid-cols-12 gap-2 min-h-0 overflow-hidden">
           {/* 画板与工具条区域（Pad 与 PC 占据 8~9 列全高，竖屏占据 flex-[2] 主体） */}
           <div className="md:col-span-8 lg:col-span-9 flex flex-col flex-[2] md:flex-none h-full min-h-0 space-y-1.5 overflow-hidden">
-            {/* Canvas 画板容器 */}
+            {/* Canvas 画板容器（固定 4:3 比例容器，绝对消除不同设备屏幕比例导致的图形拉伸变形） */}
             <div
-              className="relative bg-white rounded-xl border border-slate-200 shadow-xs p-1 flex-1 flex flex-col min-h-[220px] md:min-h-0 overflow-hidden"
+              ref={containerRef}
+              className="relative bg-slate-100/70 rounded-xl border border-slate-200 shadow-xs p-1 flex-1 flex items-center justify-center min-h-[220px] md:min-h-0 overflow-hidden"
               style={{ touchAction: 'none', overscrollBehavior: 'none' }}
             >
-              <canvas
-                ref={canvasRef}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                onPointerCancel={handlePointerUp}
-                onMouseDown={handlePointerDown as any}
-                onMouseMove={handlePointerMove as any}
-                onMouseUp={handlePointerUp as any}
-                className={`touch-drawing w-full h-full flex-1 rounded-lg bg-white border border-slate-100 cursor-crosshair shadow-inner ${
-                  !isPainter ? 'pointer-events-none' : ''
-                }`}
-                style={{ touchAction: 'none' }}
-              />
+              <div
+                style={{
+                  width: canvasDimensions.width > 0 ? `${canvasDimensions.width}px` : '100%',
+                  height: canvasDimensions.height > 0 ? `${canvasDimensions.height}px` : 'auto',
+                  aspectRatio: '4 / 3',
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                }}
+                className="relative bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex items-center justify-center"
+              >
+                <canvas
+                  ref={canvasRef}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  onPointerCancel={handlePointerUp}
+                  onMouseDown={handlePointerDown as any}
+                  onMouseMove={handlePointerMove as any}
+                  onMouseUp={handlePointerUp as any}
+                  className={`touch-drawing w-full h-full block bg-white cursor-crosshair ${
+                    !isPainter || session?.status === 'settled' ? 'pointer-events-none' : ''
+                  }`}
+                  style={{ touchAction: 'none' }}
+                />
 
-              {!isPainter && (
-                <div className="absolute top-2 left-2 pointer-events-none bg-slate-900/80 text-white backdrop-blur-sm px-2 py-0.5 rounded text-[10px] font-mono">
-                  LIVE · 正在实时观摩 {partnerNickname} 作画
-                </div>
-              )}
+                {!isPainter && session?.status === 'drawing' && (
+                  <div className="absolute top-2 left-2 pointer-events-none bg-slate-900/80 text-white backdrop-blur-sm px-2 py-0.5 rounded text-[10px] font-mono">
+                    LIVE · 正在实时观摩 {partnerNickname} 作画
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* 画师工具条（11 预设色 + 1 自选色 | 撤销 & 清屏 (放在粗细左边) | 笔刷粗细滑块 & 预览 & 橡皮擦） */}
@@ -1350,36 +1448,40 @@ export default function DrawPage() {
         </div>
       )}
 
-      {/* 阶段 3：回合结算页 */}
+      {/* 阶段 3：回合结算浮层弹窗（覆盖在画板之上，秒开无延迟，消除页面重排白屏与闪烁） */}
       {session?.status === 'settled' && (
-        <div className="bg-white rounded-2xl p-8 border border-slate-200 shadow-lg text-center space-y-5 max-w-md mx-auto animate-fade-in my-auto">
-          <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white mx-auto flex items-center justify-center shadow-md">
-            <Trophy className="w-7 h-7 text-amber-400" />
-          </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-2xl text-center space-y-4 max-w-sm w-full">
+            <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white mx-auto flex items-center justify-center shadow-md">
+              <Trophy className="w-6 h-6 text-amber-400" />
+            </div>
 
-          <div>
-            <h2 className="text-base font-bold text-slate-900">
-              {session.winner_id ? '🎯 竞猜成功！' : '本轮时间到'}
-            </h2>
-            <p className="text-xs text-slate-500 mt-1 font-mono">
-              ANSWER: <strong className="text-sm font-bold text-slate-900">{session.word}</strong>
-            </p>
-          </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-900">
+                {session.winner_id ? '🎯 竞猜成功！' : '本轮时间到'}
+              </h2>
+              <p className="text-xs text-slate-500 mt-1 font-mono">
+                正确答案: <strong className="text-sm font-bold text-slate-900">{session.word}</strong>
+              </p>
+            </div>
 
-          <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
-            <button
-              onClick={() => handleStartNextRound(true)}
-              className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              互换画师再来一局
-            </button>
-            <button
-              onClick={() => handleStartNextRound(false)}
-              className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-100 transition-colors"
-            >
-              保持角色继续
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => handleStartNextRound(true)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 touch-manipulation cursor-pointer active:scale-95"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                互换画师再来一局
+              </button>
+              <button
+                type="button"
+                onClick={() => handleStartNextRound(false)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-100 transition-colors touch-manipulation cursor-pointer active:scale-95"
+              >
+                保持角色继续
+              </button>
+            </div>
           </div>
         </div>
       )}
