@@ -21,10 +21,11 @@ export default function ReactionCapsules({
 }: ReactionCapsulesProps) {
   const [showPicker, setShowPicker] = useState(false);
 
-  // 聚合该动态的所有表情计数及本人是否已点赞
+  // 聚合该动态的所有表情计数及本人是否已点赞（严格过滤当前动态 postId，确保各对话框表情独立）
   const reactionMap = React.useMemo(() => {
     const map: Record<string, { count: number; hasReacted: boolean; names: string[] }> = {};
     reactions.forEach((r) => {
+      if (r.post_id !== postId) return;
       if (!map[r.emoji]) {
         map[r.emoji] = { count: 0, hasReacted: false, names: [] };
       }
@@ -35,7 +36,7 @@ export default function ReactionCapsules({
       }
     });
     return map;
-  }, [reactions, currentUserId]);
+  }, [reactions, currentUserId, postId]);
 
   const emojiList = Object.entries(reactionMap);
 

@@ -594,9 +594,10 @@ export default function GuessPage() {
 
   return (
     <div className="min-h-dvh max-w-4xl mx-auto px-3 sm:px-4 py-2 sm:py-3 space-y-3">
-      {/* 极简紧凑顶部对局信息条 */}
-      <div className="bg-white rounded-xl px-3 py-1.5 border border-slate-200 shadow-xs flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+      {/* 极简紧凑顶部对局信息条：手机端自动分两行，防拥挤挤压 */}
+      <div className="bg-white rounded-xl px-2.5 sm:px-3 py-1.5 sm:py-2 border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-y-1.5 gap-x-2">
+        {/* 左侧：轮数徽章与身份 */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <span className="px-2 py-0.5 rounded-md bg-slate-900 text-white font-mono font-bold text-xs shadow-xs">
             R{session.round_number}
           </span>
@@ -607,24 +608,8 @@ export default function GuessPage() {
           </span>
         </div>
 
-        {/* 秘密词语胶囊与对局操作 */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {isMaster || session.status === 'settled' ? (
-            <div className="px-2.5 py-0.5 rounded-lg bg-slate-100 border border-slate-200/80 text-right flex items-center gap-1">
-              <span className="text-[10px] text-slate-400 font-mono">答案:</span>
-              <span className="text-xs font-bold text-slate-900 font-mono tracking-wide">
-                {session.secret_word || '选题中...'}
-              </span>
-            </div>
-          ) : (
-            <div className="px-2.5 py-0.5 rounded-lg bg-slate-100 border border-slate-200/80 text-right flex items-center gap-1">
-              <span className="text-[10px] text-slate-400 font-mono">目标:</span>
-              <span className="text-xs font-bold text-slate-400 font-mono tracking-widest">
-                ? ? ?
-              </span>
-            </div>
-          )}
-
+        {/* 右侧：重新开始与退出按钮 */}
+        <div className="flex items-center gap-1.5 sm:gap-2 order-2 sm:order-3">
           {/* 重新开始按钮 */}
           <button
             type="button"
@@ -645,6 +630,25 @@ export default function GuessPage() {
           >
             退出
           </button>
+        </div>
+
+        {/* 秘密词语胶囊：小屏独占第二行或在大屏居中显示，杜绝文字挤压 */}
+        <div className="order-3 sm:order-2 w-full sm:w-auto flex justify-center sm:justify-start">
+          {isMaster || session.status === 'settled' ? (
+            <div className="w-full sm:w-auto px-2.5 py-0.5 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center sm:justify-start gap-1">
+              <span className="text-[10px] text-slate-400 font-mono">答案:</span>
+              <span className="text-xs font-bold text-slate-900 font-mono tracking-wide truncate">
+                {session.secret_word || '选题中...'}
+              </span>
+            </div>
+          ) : (
+            <div className="w-full sm:w-auto px-2.5 py-0.5 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center sm:justify-start gap-1">
+              <span className="text-[10px] text-slate-400 font-mono">目标:</span>
+              <span className="text-xs font-bold text-slate-400 font-mono tracking-widest">
+                ? ? ?
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

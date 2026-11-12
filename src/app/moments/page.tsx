@@ -328,13 +328,24 @@ export default function MomentsPage() {
     fetchAllData();
   }, [fetchAllData]);
 
-  // 2. 聊天消息自动吸底
+  // 2. 聊天消息自动吸底与引用跳转
   const scrollToBottom = useCallback((smooth = true) => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTo({
         top: chatScrollRef.current.scrollHeight,
         behavior: smooth ? 'smooth' : 'auto',
       });
+    }
+  }, []);
+
+  const handleJumpToPost = useCallback((targetPostId: string) => {
+    const el = document.getElementById(`post-${targetPostId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-blue-500', 'bg-blue-50/40', 'rounded-2xl', 'transition-all');
+      setTimeout(() => {
+        el.classList.remove('ring-2', 'ring-blue-500', 'bg-blue-50/40', 'rounded-2xl');
+      }, 1600);
     }
   }, []);
 
@@ -1015,8 +1026,8 @@ export default function MomentsPage() {
 
   return (
     <div className="h-[calc(100dvh-50px)] max-w-3xl mx-auto px-2 sm:px-4 py-1.5 flex flex-col justify-between overflow-hidden">
-      {/* 顶部紧凑看板：徽章条与对方状态 */}
-      <div className="bg-slate-900 rounded-xl px-3 py-1.5 text-white border border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-2 shrink-0">
+      {/* 顶部紧凑看板：徽章条与对方状态（自适应小屏，拥挤时自动换行） */}
+      <div className="bg-slate-900 rounded-xl px-3 py-2 text-white border border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-y-2 gap-x-2 shrink-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             onClick={() => {
@@ -1048,7 +1059,7 @@ export default function MomentsPage() {
         </div>
 
         {/* 对方实时状态 */}
-        <div className="text-[11px] font-mono text-slate-300 flex items-center gap-1.5 bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-700">
+        <div className="text-[11px] font-mono text-slate-300 flex items-center gap-1.5 bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-700 ml-auto sm:ml-0">
           <span className="text-slate-400">{partnerNickname}:</span>
           {partnerStatus ? (
             <span className="text-blue-300 font-semibold flex items-center gap-1">
@@ -1092,7 +1103,7 @@ export default function MomentsPage() {
             }
 
             return (
-              <div key={post.id} className="space-y-1">
+              <div key={post.id} id={`post-${post.id}`} className="space-y-1 transition-all duration-300">
                 {showTimeDivider && (
                   <div className="text-center py-1">
                     <span className="text-[10px] font-mono text-slate-400 bg-slate-100/90 px-2.5 py-0.5 rounded-full shadow-2xs">
@@ -1130,19 +1141,42 @@ export default function MomentsPage() {
                       </div>
                     )}
 
-                    {/* 引用回复摘要 */}
-                    {parentPost && (
-                      <div
-                        className={`text-xs p-2 rounded-lg border-l-2 mb-2 line-clamp-2 ${
-                          isMine
-                            ? 'bg-blue-700/60 border-blue-300 text-blue-100'
-                            : 'bg-slate-50 border-blue-500 text-slate-600'
-                        }`}
-                      >
-                        <span className="font-bold mr-1">@{parentPost.author_nickname}:</span>
-                        <span>{parentPost.content || '[图片/涂鸦]'}</span>
-                      </div>
-                    )}
+                    {/* 引用回复摘要（带缩略图 + 点击自动跳转定位至原消息） */}
+                    {parentPost && (() => {
+                      const parentImages = parentPost.image_url ? parseImages(parentPost.image_url) : [];
+                      const displayContent = parentPost.content === '[图片]' && parentImages.length > 0
+                        ? (parentImages.length > 1 ? `[${parentImages.length}张图片/涂鸦]` : '[图片/手绘涂鸦]')
+                        : parentPost.content || '[图片/涂鸦]';
+
+                      return (
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleJumpToPost(parentPost.id);
+                          }}
+                          className={`text-xs p-2 rounded-lg border-l-2 mb-2 flex items-center justify-between gap-2 cursor-pointer transition-all active:scale-[0.98] hover:opacity-90 ${
+                            isMine
+                              ? 'bg-blue-700/60 border-blue-300 text-blue-100 hover:bg-blue-700/80'
+                              : 'bg-slate-50 border-blue-500 text-slate-600 hover:bg-slate-100'
+                          }`}
+                          title="点击快速跳转至原消息位置"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <span className="font-bold mr-1 block text-[11px] opacity-80">
+                              引用 @{parentPost.author_nickname}:
+                            </span>
+                            <span className="line-clamp-2">{displayContent}</span>
+                          </div>
+                          {parentImages.length > 0 && (
+                            <img
+                              src={parentImages[0]}
+                              alt="引用缩略图"
+                              className="w-8 h-8 rounded-md object-cover border border-black/10 shadow-xs shrink-0"
+                            />
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* 文本内容（仅在有实际用户输入文字时渲染，自动隐藏仅发图时的占位字符） */}
                     {post.content && (post.content !== '[图片]' || images.length === 0) && (
@@ -1243,24 +1277,38 @@ export default function MomentsPage() {
 
       {/* 底部固定输入区（QQ 式输入条，紧贴底部防输入法遮挡） */}
       <div className="sticky bottom-0 z-20 bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/90 shadow-md p-2 sm:p-2.5 space-y-1.5 shrink-0 mt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-        {/* 引用回复提示条 */}
-        {replyingTo && (
-          <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-1 text-xs text-blue-900 animate-fade-in">
-            <div className="flex items-center gap-1.5 truncate">
-              <MessageSquareReply className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-              <span className="truncate">
-                回复 <strong>@{replyingTo.author_nickname}</strong>: {replyingTo.content.slice(0, 30)}
-              </span>
+        {/* 引用回复提示条（带图片/涂鸦缩略图） */}
+        {replyingTo && (() => {
+          const replyingImages = replyingTo.image_url ? parseImages(replyingTo.image_url) : [];
+          const displayContent = replyingTo.content === '[图片]' && replyingImages.length > 0
+            ? (replyingImages.length > 1 ? `[${replyingImages.length}张图片/涂鸦]` : '[图片/手绘涂鸦]')
+            : replyingTo.content.slice(0, 30);
+
+          return (
+            <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-1 text-xs text-blue-900 animate-fade-in">
+              <div className="flex items-center gap-2 truncate">
+                <MessageSquareReply className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span className="truncate">
+                  回复 <strong>@{replyingTo.author_nickname}</strong>: {displayContent}
+                </span>
+                {replyingImages.length > 0 && (
+                  <img
+                    src={replyingImages[0]}
+                    alt="引用缩略图"
+                    className="w-5 h-5 rounded object-cover border border-blue-200 shrink-0 shadow-2xs"
+                  />
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setReplyingTo(null)}
+                className="text-blue-400 hover:text-blue-700 ml-2"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setReplyingTo(null)}
-              className="text-blue-400 hover:text-blue-700 ml-2"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
+          );
+        })()}
 
         {/* 多图及涂鸦预览横条 */}
         {attachedImages.length > 0 && (

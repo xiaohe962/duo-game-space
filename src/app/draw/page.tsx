@@ -322,7 +322,7 @@ export default function DrawPage() {
     };
   }, [pairCode]);
 
-  // 笔迹微批次聚合发射：将 20ms 内的高频笔迹合并为一个 batch 数据包，彻底消除 WebSocket 拥塞与 2~3 秒迟滞
+  // 笔迹微批次聚合发射：将 35ms 内的高频笔迹合并为一个 batch 数据包，彻底消除 WebSocket 拥塞与 2~3 秒迟滞
   const flushStrokes = useCallback(() => {
     if (strokeBufferRef.current.length === 0) return;
     const strokesToSend = [...strokeBufferRef.current];
@@ -352,17 +352,13 @@ export default function DrawPage() {
       if (!pairCode) return;
       strokeHistoryRef.current.push(stroke);
       strokeBufferRef.current.push(stroke);
-      if (strokeBufferRef.current.length >= 4) {
-        if (flushTimerRef.current) {
-          clearTimeout(flushTimerRef.current);
-          flushTimerRef.current = null;
-        }
-        flushStrokes();
-      } else if (!flushTimerRef.current) {
+
+      // 启动固定 35ms (~28fps) 帧率微批次聚合，杜绝超频发射与 WebSocket 广播积压
+      if (!flushTimerRef.current) {
         flushTimerRef.current = setTimeout(() => {
           flushTimerRef.current = null;
           flushStrokes();
-        }, 20);
+        }, 35);
       }
     },
     [flushStrokes, pairCode]
@@ -443,7 +439,48 @@ export default function DrawPage() {
 
   const handleRemoteStroke = (stroke: DrawStrokePayload) => {
     if (stroke.type === 'batch' && stroke.strokes) {
-      stroke.strokes.forEach((s) => handleRemoteStroke(s));
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const rect = canvas.getBoundingClientRect();
+
+      stroke.strokes.forEach((s) => {
+        if (s.type === 'draw' && s.from && s.to) {
+          ctx.beginPath();
+          ctx.strokeStyle = s.color || '#0f172a';
+          ctx.lineWidth = s.size || 4;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+
+          if (s.control) {
+            ctx.moveTo(s.from.x * rect.width, s.from.y * rect.height);
+            ctx.quadraticCurveTo(
+              s.control.x * rect.width,
+              s.control.y * rect.height,
+              s.to.x * rect.width,
+              s.to.y * rect.height
+            );
+          } else {
+            ctx.moveTo(s.from.x * rect.width, s.from.y * rect.height);
+            ctx.lineTo(s.to.x * rect.width, s.to.y * rect.height);
+          }
+          ctx.stroke();
+          strokeHistoryRef.current.push(s);
+        } else if (s.type === 'clear') {
+          ctx.clearRect(0, 0, rect.width, rect.height);
+          strokeHistoryRef.current = [];
+        } else if (s.type === 'undo') {
+          if (s.strokeId) {
+            strokeHistoryRef.current = strokeHistoryRef.current.filter(
+              (item) => item.strokeId !== s.strokeId
+            );
+          } else {
+            strokeHistoryRef.current.pop();
+          }
+          redrawAll();
+        }
+      });
       return;
     }
 
@@ -543,10 +580,10 @@ export default function DrawPage() {
     if (!ctx) return;
     const rect = canvas.getBoundingClientRect();
 
-    // 过滤亚像素微小抖动（位移平方小于 1.5px 时忽略，大幅削减高刷触控产生的无意义冗余包，降低传输延迟）
+    // 过滤无意义微小位移（平方小于 8px 时忽略，大幅削减高刷触控产生的冗余包，降低传输延迟）
     const dx = (currentPoint.x - lastPointRef.current.x) * rect.width;
     const dy = (currentPoint.y - lastPointRef.current.y) * rect.height;
-    if (dx * dx + dy * dy < 1.5) return;
+    if (dx * dx + dy * dy < 8) return;
 
     const currentColor = isEraser ? '#ffffff' : brushColor;
     const currentSize = isEraser ? brushSize * 2 : brushSize;
@@ -572,15 +609,26 @@ export default function DrawPage() {
     );
     ctx.stroke();
 
+    // 坐标四位小数规整化，大幅缩减 WebSocket JSON 数据包体积（精度在 800px 画布下达 0.08px，绝对无损）
+    const round4 = (v: number) => Math.round(v * 10000) / 10000;
+    const fromP: DrawStrokePoint = {
+      x: round4(lastPointRef.current.x),
+      y: round4(lastPointRef.current.y),
+    };
+    const toP: DrawStrokePoint = {
+      x: round4(midPoint.x),
+      y: round4(midPoint.y),
+    };
+
     // 广播平滑笔迹（绑定 strokeId 归属并进入微批次缓冲，极大降低网络延迟）
     const strokePayload: DrawStrokePayload = {
       type: 'draw',
       strokeId: currentStrokeIdRef.current || undefined,
       color: currentColor,
       size: currentSize,
-      from: lastPointRef.current,
-      to: midPoint,
-      control: lastPointRef.current,
+      from: fromP,
+      to: toP,
+      control: fromP,
     };
     queueStroke(strokePayload);
 
@@ -1043,10 +1091,10 @@ export default function DrawPage() {
 
   return (
     <div className="h-[calc(100dvh-50px)] max-w-6xl mx-auto px-2 sm:px-4 py-1.5 flex flex-col justify-between space-y-1.5 overflow-hidden">
-      {/* 极简紧凑顶部栏：大幅缩减垂直高度占用 */}
-      <div className="bg-white rounded-xl px-3 py-1.5 border border-slate-200 shadow-xs flex items-center justify-between gap-2 shrink-0">
+      {/* 极简紧凑顶部栏：支持手机两行自适应，防止内容拥挤 */}
+      <div className="bg-white rounded-xl px-2.5 sm:px-3 py-1.5 border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-y-1.5 gap-x-2 shrink-0">
         {/* 左侧：局数徽章 + 角色状态 */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <span className="px-2 py-0.5 rounded-md bg-slate-900 text-white font-mono font-bold text-xs shadow-xs">
             R{session?.round_number || 1}
           </span>
@@ -1063,21 +1111,13 @@ export default function DrawPage() {
           </span>
         </div>
 
-        {/* 中间：题目胶囊（开局仅显示字数，60s后仅显示分类） */}
-        <div className="px-3 py-0.5 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center gap-1.5 shadow-inner">
-          <span className="text-[10px] text-slate-400 font-mono font-medium">题目:</span>
-          <span className="text-xs font-bold text-slate-900 font-mono tracking-wider">
-            {isPainter ? session?.word || '挑选题目中...' : getGuesserWordMask()}
-          </span>
-        </div>
-
         {/* 右侧：重新开始 + 倒计时 + 退出 */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 order-2 sm:order-3">
           {/* 重新开始按钮 */}
           <button
             type="button"
             onClick={handleRestartGame}
-            className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 text-xs font-semibold flex items-center gap-1 transition-all active:scale-95"
+            className="px-2 sm:px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 text-xs font-semibold flex items-center gap-1 transition-all active:scale-95"
             title="重置对局并重新开始"
           >
             <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
@@ -1086,7 +1126,7 @@ export default function DrawPage() {
 
           {session?.status === 'drawing' && (
             <div
-              className={`flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold font-mono transition-colors ${
+              className={`flex items-center gap-1 px-2 sm:px-2.5 py-0.5 rounded-lg text-xs font-bold font-mono transition-colors ${
                 remainingTime <= 30
                   ? 'bg-rose-500 text-white animate-pulse'
                   : 'bg-slate-900 text-white'
@@ -1104,6 +1144,14 @@ export default function DrawPage() {
           >
             退出
           </button>
+        </div>
+
+        {/* 题目胶囊（开局仅显示字数，60s后仅显示分类）手机端放第二行，大屏居中 */}
+        <div className="order-3 sm:order-2 w-full sm:w-auto px-2.5 sm:px-3 py-1 sm:py-0.5 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center sm:justify-start gap-1.5 shadow-inner">
+          <span className="text-[10px] text-slate-400 font-mono font-medium">题目:</span>
+          <span className="text-xs font-bold text-slate-900 font-mono tracking-wider truncate">
+            {isPainter ? session?.word || '挑选题目中...' : getGuesserWordMask()}
+          </span>
         </div>
       </div>
 
@@ -1189,11 +1237,11 @@ export default function DrawPage() {
         </div>
       )}
 
-      {/* 阶段 2：作画与竞猜主面板（针对 Pad 及各尺寸屏幕完美自适应：Pad 端左侧占 8~9 列高占比画板，右侧占 3~4 列竞猜聊天） */}
+      {/* 阶段 2：作画与竞猜主面板（全平台统一上下布局：上方画板最大化撑满屏幕，下方放置紧凑竞猜聊天框，彻底释放 Pad 与大屏空间利用率） */}
       {(session?.status === 'drawing' || session?.status === 'settled') && (
-        <div className="flex-1 flex flex-col md:grid md:grid-cols-12 gap-2 min-h-0 overflow-hidden">
-          {/* 画板与工具条区域（Pad 与 PC 占据 8~9 列全高，竖屏占据 flex-[2] 主体） */}
-          <div className="md:col-span-8 lg:col-span-9 flex flex-col flex-[2] md:flex-none h-full min-h-0 space-y-1.5 overflow-hidden">
+        <div className="flex-1 flex flex-col gap-1.5 min-h-0 h-full overflow-hidden">
+          {/* 上半部：画板与工具条区域（占据全宽，自适应伸缩占据绝大部分屏幕） */}
+          <div className="flex-1 min-h-0 flex flex-col space-y-1.5 overflow-hidden">
             {/* Canvas 画板容器（固定 4:3 比例容器，绝对消除不同设备屏幕比例导致的图形拉伸变形） */}
             <div
               ref={containerRef}
@@ -1369,9 +1417,9 @@ export default function DrawPage() {
             )}
           </div>
 
-          {/* 右侧/下侧：聊天与竞猜互动区 (Pad 与 PC 占据 3~4 列并充满全高，小屏与竖屏保持紧凑防占位) */}
-          <div className="md:col-span-4 lg:col-span-3 bg-white rounded-xl p-2.5 sm:p-3 border border-slate-200 shadow-xs flex flex-col justify-between flex-1 md:flex-none h-full min-h-[140px] max-h-[190px] md:max-h-none overflow-hidden">
-            <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 shrink-0">
+          {/* 下半部：聊天与竞猜互动区（置于画板下方横向满宽，高度紧凑，保障画板最大可视区） */}
+          <div className="bg-white rounded-xl p-2 sm:p-2.5 border border-slate-200 shadow-xs flex flex-col justify-between shrink-0 h-[130px] sm:h-[145px] md:h-[160px] overflow-hidden">
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100 shrink-0">
               <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1 font-mono uppercase">
                 <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
                 Live Chat & Guess
@@ -1382,7 +1430,7 @@ export default function DrawPage() {
             {/* 消息滚动流（自动吸底） */}
             <div
               ref={chatScrollRef}
-              className="flex-1 overflow-y-auto space-y-1.5 py-1.5 pr-1 no-scrollbar text-xs"
+              className="flex-1 min-h-0 overflow-y-auto space-y-1 py-1 pr-1 no-scrollbar text-xs"
             >
               {messages.length === 0 ? (
                 <div className="py-8 text-center text-slate-400 text-xs font-mono">

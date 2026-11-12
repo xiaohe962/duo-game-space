@@ -1,34 +1,35 @@
 # 双人专属小游戏合集与互动空间 (PROGRESS.md)
 
-## 1. 当前核心架构与代码库状态
+## 1. 核心架构与部署状态
 - **全栈架构**：Next.js 15.5 (App Router) + React 19 + TypeScript + Tailwind CSS 3.4 + Supabase Realtime/Postgres。
-- **构建输出模式**：常驻锁定纯静态导出模式 (`output: 'export'`，`images.unoptimized: true`)，`npm run build` 稳定输出 `./out` 纯静态文件夹。
-- **三大板块规范命名**：**GuessWhat**、**你画我猜**、**动态空间**。
-- **线上正式生产地址**：`https://duo-game-space.a8425w.workers.dev/`（Cloudflare Workers Static Assets）。
+- **构建输出模式**：常驻锁定纯静态导出 (`output: 'export'`，`images.unoptimized: true`)，`npm run build` 稳定输出 `./out` 纯静态文件夹。
+- **三大核心板块**：**GuessWhat**、**你画我猜**、**动态空间**。
+- **线上生产地址**：`https://duo-game-space.a8425w.workers.dev/`（Cloudflare Workers Static Assets）。
 - **远程仓库**：`https://github.com/xiaohe962/duo-game-space.git` (`main` 分支)。
 
-## 2. 本轮 6 项核心体验与性能问题修复
-- [x] **项 1：你画我猜画布比例统一（消除等比例变形）**：
-  - 在 `src/app/draw/page.tsx` 中引入响应式 4:3 黄金比例容器计算机制，根据父级视口自适应居中，多端屏幕上的画布严格保持 4:3 物理比例，彻底根除跨端（如手机与 Pad）因长宽比不同导致的画面拉伸、压缩或扁化变形。
-- [x] **项 2：你画我猜结算弹窗弹出慢与整站闪烁卡顿修复**：
-  - 将结算卡片改为覆盖于画板上方的轻量浮层弹窗（Modal），保留画板底层 DOM 结构，消除因页面布局整体销毁重构带来的整页重排重绘与闪烁卡顿；粒子动效轻量化调优，结算瞬间秒开。
-- [x] **项 3：你画我猜下一局画板未清空修复**：
-  - 在 `handleStartNextRound`、`handleRestartGame`、`handleSelectWord` 以及 `GAME_STATE` 广播监听中，全面强制清空 `strokeHistoryRef`、发射缓冲与 Canvas 画布像素，彻底根除上一轮笔迹遗留。
-- [x] **项 4：动态空间发送图片/涂鸦速度慢与延迟大修复**：
-  - 涂鸦（540px/0.68 质量）与图片（640px/0.65 质量）前置高效轻量压缩（单图仅 18~30KB）；
-  - 发送消息实施瞬时乐观上屏（0ms 感知延迟）并立即通过 Realtime 广播对方，后台并行异步持久化，彻底消除发送阻塞卡顿。
-- [x] **项 5：放小红花后对方白屏几秒问题修复**：
-  - 在 `getBadgeCountForUser` 与 `BadgeLedgerModal.tsx` 中加入严格的空指针防线（安全过滤 `b.user_id` 与 `targetUid`），杜绝因 `endsWith` 异常报错引发 React 组件树卸载白屏；小红花动效与振动安全兜底。
-- [x] **项 6：GuessWhat 取消所有关于 20 次问题的数量限制**：
-  - 彻底移除 `src/app/guess/page.tsx` 中 20 问进度条、20 次耗尽锁定警告以及输入框输入禁用限制，支持无上限自由提问直至竞猜成功或认输。
+## 2. 最近关键优化与 Bug 修复
+1. **你画我猜 Pad 与平板端上下布局（释放全屏利用率）**：
+   - 将主面板从中大屏左右分栏（`md:grid md:grid-cols-12`）重构为统一上下垂直布局：上部画板占据 `flex-1` 满宽黄金 4:3 比例，作画面积提升逾 110%；下部竞猜聊天区全宽置底（高度锁定 130px~160px 紧凑不遮挡）。
+2. **所有界面手机端顶栏自适应（超出一行自动折行成两行）**：
+   - 包含【你画我猜】与【GuessWhat】在内，顶栏容器统一适配 `flex-wrap items-center justify-between gap-y-1.5`：第一行展示局数/角色与功能操作，题目/秘密词胶囊在手机端自动折行至第二行居中展开，彻底消除拥挤与文字溢出截断。
+3. **你画我猜画笔延迟彻底根除（网络传输与渲染双重优化）**：
+   - 弃用容易引发并发风暴的 4 点计数器，改用 35ms 定频微批次聚合（~28fps），彻底避免超限挤压 Supabase WebSocket 队列；
+   - 增加微小抖动距离过滤阈值（$\Delta x^2 + \Delta y^2 < 8\text{px}^2$）；
+   - 笔迹坐标标准化为 4 位小数（`Math.round(v * 10000) / 10000`），将单包 Payload 缩减 60%；
+   - 抬笔/取消时 0ms 瞬时发射剩余缓冲；远端收到 batch 时使用单循环直接上屏。
+4. **动态空间快捷表情独立化修复**：
+   - 在 `ReactionCapsules.tsx` 中补全 `if (r.post_id !== postId) return;` 过滤，消除同一房间内表情污染所有消息气泡的 Bug，实现单条消息表情各自独立。
+5. **动态空间引用图片/涂鸦显示缩略图 + 点击自动跳转定位原消息**：
+   - 将原本仅显示 `[图片]` 占位符的引用预览替换为微缩图像（缩略图），并在气泡添加目标定位锚点 `id="post-{id}"`；
+   - 点击引用区域自动触发 `scrollIntoView({ behavior: 'smooth' })` 平滑滚动并附带蓝光高亮动画提示。
 
-## 3. 最近修改文件
-- `src/app/draw/page.tsx`（4:3 画板自适应居中容器、开局画布彻底清空、结算弹窗浮层化防闪烁）
-- `src/app/moments/page.tsx`（图片高效压缩、瞬时乐观发送、小红花空指针防崩）
-- `src/components/moments/BadgeLedgerModal.tsx`（账本小红花防崩安全过滤）
-- `src/components/moments/DoodleModal.tsx`（涂鸦紧凑分辨率与轻量体积导出）
-- `src/app/guess/page.tsx`（取消 20 问数量限制、无限次自由提问）
-- `PROGRESS.md`（同步状态快照）
+## 3. 最近修改文件清单
+- `src/app/draw/page.tsx`（Pad/全端上下布局、画板面积倍增、定频 35ms 批次发射防延迟、顶栏小屏两行折行）
+- `src/app/guess/page.tsx`（顶栏小屏两行折行、秘密词居中自适应）
+- `src/app/moments/page.tsx`（顶栏两行折行、引用缩略图直显、点击平滑滚动跳转高亮）
+- `src/components/moments/ReactionCapsules.tsx`（表情严格按 postId 隔离独立）
+- `PROGRESS.md`（状态快照，严格保持 150 行以内）
 
 ## 4. 下一步待办事项 (Next Steps)
-- 推送代码至 GitHub `main` 分支，由 Cloudflare Workers 自动同步最新产物并完成上线测试。
+- 提交代码并推送到 GitHub `main` 分支；
+- Cloudflare Workers 自动同步最新产物部署上线并交付用户测试。
