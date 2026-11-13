@@ -278,45 +278,73 @@ export default function MomentsPage() {
         } catch (_) {}
       }
 
-      // 徽章与资产
-      const { data: balanceData } = await supabase
-        .from('badge_balances')
-        .select('*')
-        .eq('pair_code', pairCode);
-      if (balanceData) {
-        setBalances(balanceData as BadgeBalance[]);
-        try {
-          localStorage.setItem(`duo_moments_balances_${pairCode}`, JSON.stringify(balanceData));
-        } catch (_) {}
+      // 徽章与资产（独立容错）
+      try {
+        const { data: balanceData, error: bErr } = await supabase
+          .from('badge_balances')
+          .select('*')
+          .eq('pair_code', pairCode);
+        if (balanceData) {
+          setBalances(balanceData as BadgeBalance[]);
+          try {
+            localStorage.setItem(`duo_moments_balances_${pairCode}`, JSON.stringify(balanceData));
+          } catch (_) {}
+        } else if (bErr && (bErr.code === 'PGRST205' || (bErr as any).status === 404)) {
+          console.warn('提示: badge_balances 表尚未在 Supabase 中创建，请执行 supabase/migration_v3_moments.sql');
+        }
+      } catch (e) {
+        console.warn('拉取 badge_balances 异常:', e);
       }
 
-      const { data: logsData } = await supabase
-        .from('badge_logs')
-        .select('*')
-        .eq('pair_code', pairCode)
-        .order('created_at', { ascending: false })
-        .limit(50);
-      if (logsData) {
-        setBadgeLogs(logsData as BadgeLog[]);
-        try {
-          localStorage.setItem(`duo_moments_logs_${pairCode}`, JSON.stringify(logsData));
-        } catch (_) {}
+      try {
+        const { data: logsData, error: lErr } = await supabase
+          .from('badge_logs')
+          .select('*')
+          .eq('pair_code', pairCode)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (logsData) {
+          setBadgeLogs(logsData as BadgeLog[]);
+          try {
+            localStorage.setItem(`duo_moments_logs_${pairCode}`, JSON.stringify(logsData));
+          } catch (_) {}
+        } else if (lErr && (lErr.code === 'PGRST205' || (lErr as any).status === 404)) {
+          console.warn('提示: badge_logs 表尚未在 Supabase 中创建，请执行 supabase/migration_v3_moments.sql');
+        }
+      } catch (e) {
+        console.warn('拉取 badge_logs 异常:', e);
       }
 
-      // 表态
-      const { data: reactionData } = await supabase
-        .from('post_reactions')
-        .select('*')
-        .eq('pair_code', pairCode);
-      if (reactionData) setReactions(reactionData as PostReaction[]);
+      // 表态（独立容错）
+      try {
+        const { data: reactionData, error: rErr } = await supabase
+          .from('post_reactions')
+          .select('*')
+          .eq('pair_code', pairCode);
+        if (reactionData) {
+          setReactions(reactionData as PostReaction[]);
+        } else if (rErr && (rErr.code === 'PGRST205' || (rErr as any).status === 404)) {
+          console.warn('提示: post_reactions 表尚未在 Supabase 中创建，请执行 supabase/migration_v3_moments.sql');
+        }
+      } catch (e) {
+        console.warn('拉取 post_reactions 异常:', e);
+      }
 
-      // 对方状态
-      const { data: statusData } = await supabase
-        .from('user_status')
-        .select('*')
-        .eq('user_id', partnerUserId)
-        .maybeSingle();
-      if (statusData) setPartnerStatus(statusData as UserStatus);
+      // 对方状态（独立容错）
+      try {
+        const { data: statusData, error: sErr } = await supabase
+          .from('user_status')
+          .select('*')
+          .eq('user_id', partnerUserId)
+          .maybeSingle();
+        if (statusData) {
+          setPartnerStatus(statusData as UserStatus);
+        } else if (sErr && (sErr.code === 'PGRST205' || (sErr as any).status === 404)) {
+          console.warn('提示: user_status 表尚未在 Supabase 中创建，请执行 supabase/migration_v3_moments.sql');
+        }
+      } catch (e) {
+        console.warn('拉取 user_status 异常:', e);
+      }
     } catch (e) {
       console.error('拉取空间数据异常:', e);
     } finally {
@@ -876,9 +904,10 @@ export default function MomentsPage() {
     // D. 异步同步到 Supabase 数据库
     if (isSupabaseConfigured) {
       try {
+        // 先查出当前已有余额（仅查询 count，杜绝不存在的 id 列依赖）
         const { data: currentRecord } = await supabase
           .from('badge_balances')
-          .select('id, count')
+          .select('count')
           .eq('pair_code', pairCode)
           .eq('user_id', receiverId)
           .eq('badge_type', badgeType)
@@ -887,23 +916,17 @@ export default function MomentsPage() {
         const currentCount = currentRecord?.count || 0;
         const nextCount = Math.max(0, currentCount + delta);
 
-        if (currentRecord?.id) {
-          await supabase
-            .from('badge_balances')
-            .update({
-              count: nextCount,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', currentRecord.id);
-        } else {
-          await supabase.from('badge_balances').insert({
+        // 使用 Supabase 官方推荐的标准原子 upsert 写入（复合主键 pair_code,user_id,badge_type）
+        await supabase.from('badge_balances').upsert(
+          {
             pair_code: pairCode,
             user_id: receiverId,
             badge_type: badgeType,
             count: nextCount,
             updated_at: new Date().toISOString(),
-          });
-        }
+          },
+          { onConflict: 'pair_code,user_id,badge_type' }
+        );
 
         await supabase.from('badge_logs').insert({
           pair_code: pairCode,
@@ -938,7 +961,14 @@ export default function MomentsPage() {
         payload: { action: 'remove', postId, emoji, userId },
       });
       if (isSupabaseConfigured) {
-        await supabase.from('post_reactions').delete().eq('id', existing.id);
+        if (isValidUuid(existing.id)) {
+          await supabase.from('post_reactions').delete().eq('id', existing.id);
+        } else {
+          await supabase
+            .from('post_reactions')
+            .delete()
+            .match({ pair_code: pairCode, post_id: postId, user_id: userId, emoji });
+        }
       }
     } else {
       const newReaction: PostReaction = {

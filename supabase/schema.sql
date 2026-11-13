@@ -166,18 +166,24 @@ CREATE INDEX IF NOT EXISTS idx_guess_records_session ON public.guess_records(ses
 CREATE INDEX IF NOT EXISTS idx_draw_sessions_pair ON public.draw_sessions(pair_code);
 CREATE INDEX IF NOT EXISTS idx_draw_messages_session ON public.draw_messages(session_id, created_at ASC);
 
--- 6. 开启 Supabase Realtime 复制
-ALTER PUBLICATION supabase_realtime ADD TABLE public.couple_rooms;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.couple_posts;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.badge_balances;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.badge_logs;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.post_reactions;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.user_status;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.guess_sessions;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.guess_questions;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.guess_records;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.draw_sessions;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.draw_messages;
+-- 6. 开启 Supabase Realtime 复制 (幂等异常保护，重复执行不报错)
+DO $$
+DECLARE
+    tbl text;
+    tables text[] := ARRAY[
+        'couple_rooms', 'couple_posts', 'badge_balances', 'badge_logs',
+        'post_reactions', 'user_status', 'guess_sessions', 'guess_questions',
+        'guess_records', 'draw_sessions', 'draw_messages'
+    ];
+BEGIN
+    FOREACH tbl IN ARRAY tables LOOP
+        BEGIN
+            EXECUTE format('ALTER PUBLICATION supabase_realtime ADD TABLE public.%I', tbl);
+        EXCEPTION WHEN duplicate_object THEN
+            NULL;
+        END;
+    END LOOP;
+END $$;
 
 -- 7. 启用行级安全策略 (RLS)
 ALTER TABLE public.couple_rooms ENABLE ROW LEVEL SECURITY;

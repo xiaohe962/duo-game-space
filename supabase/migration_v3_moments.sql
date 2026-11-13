@@ -1,6 +1,7 @@
 -- ========================================================
--- 动态空间深度重构扩展迁移脚本 (Migration v3.0)
--- 包含：小红花与徽章系统、动态贴纸表态、实时状态打卡、楼中楼引用
+-- 动态空间深度重构扩展迁移脚本 (Migration v3.0 - Idempotent Safe Version)
+-- 包含：小红花与徽章系统、动态贴纸表态、实时状态打卡、存储桶及 RLS 策略
+-- 提示：可在 Supabase SQL Editor 中直接全量执行，支持重复执行无冲突
 -- ========================================================
 
 -- 1. 动态表扩展字段 (Posts Table Alteration)
@@ -9,7 +10,7 @@ ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES public.couple_posts(id) ON DE
 ADD COLUMN IF NOT EXISTS post_type VARCHAR(32) DEFAULT 'normal';
 
 -- 2. 小红花与徽章系统 (Badges & Rewards)
--- 徽章余额表
+-- 徽章余额表 (复合主键 pair_code + user_id + badge_type，完美支持原子 upsert)
 CREATE TABLE IF NOT EXISTS public.badge_balances (
     pair_code VARCHAR(4) NOT NULL REFERENCES public.couple_rooms(code) ON DELETE CASCADE,
     user_id VARCHAR(64) NOT NULL,
@@ -62,21 +63,46 @@ CREATE INDEX IF NOT EXISTS idx_badge_logs_pair ON public.badge_logs(pair_code, c
 CREATE INDEX IF NOT EXISTS idx_post_reactions_post ON public.post_reactions(post_id);
 CREATE INDEX IF NOT EXISTS idx_user_status_pair ON public.user_status(pair_code);
 
--- 6. 开启 Supabase Realtime 复制
-ALTER PUBLICATION supabase_realtime ADD TABLE public.badge_balances;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.badge_logs;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.post_reactions;
-ALTER PUBLICATION supabase_realtime ADD TABLE public.user_status;
+-- 6. 安全开启 Supabase Realtime 复制 (幂等异常保护，重复执行不报错)
+DO $$
+BEGIN
+    BEGIN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.badge_balances;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
 
--- 7. 启用行级安全策略 (RLS)
+    BEGIN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.badge_logs;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
+
+    BEGIN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.post_reactions;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
+
+    BEGIN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.user_status;
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
+END $$;
+
+-- 7. 启用行级安全策略 (RLS) 与全权读写策略 (幂等更新)
 ALTER TABLE public.badge_balances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.badge_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.post_reactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_status ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Allow public read-write for badge_balances" ON public.badge_balances;
 CREATE POLICY "Allow public read-write for badge_balances" ON public.badge_balances FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public read-write for badge_logs" ON public.badge_logs;
 CREATE POLICY "Allow public read-write for badge_logs" ON public.badge_logs FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public read-write for post_reactions" ON public.post_reactions;
 CREATE POLICY "Allow public read-write for post_reactions" ON public.post_reactions FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public read-write for user_status" ON public.user_status;
 CREATE POLICY "Allow public read-write for user_status" ON public.user_status FOR ALL USING (true) WITH CHECK (true);
 
 -- 8. 存储桶配置：chat-media（用于多媒体聊天图片与手绘涂鸦，支持公开上传与读取）
@@ -86,24 +112,15 @@ ON CONFLICT (id) DO UPDATE SET public = true;
 
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Allow public select on chat-media'
-    ) THEN
-        CREATE POLICY "Allow public select on chat-media" ON storage.objects FOR SELECT USING (bucket_id = 'chat-media');
-    END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Allow public insert on chat-media'
-    ) THEN
-        CREATE POLICY "Allow public insert on chat-media" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'chat-media');
-    END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Allow public update on chat-media'
-    ) THEN
-        CREATE POLICY "Allow public update on chat-media" ON storage.objects FOR UPDATE USING (bucket_id = 'chat-media');
-    END IF;
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies WHERE tablename = 'objects' AND policyname = 'Allow public delete on chat-media'
-    ) THEN
-        CREATE POLICY "Allow public delete on chat-media" ON storage.objects FOR DELETE USING (bucket_id = 'chat-media');
-    END IF;
+    DROP POLICY IF EXISTS "Allow public select on chat-media" ON storage.objects;
+    CREATE POLICY "Allow public select on chat-media" ON storage.objects FOR SELECT USING (bucket_id = 'chat-media');
+
+    DROP POLICY IF EXISTS "Allow public insert on chat-media" ON storage.objects;
+    CREATE POLICY "Allow public insert on chat-media" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'chat-media');
+
+    DROP POLICY IF EXISTS "Allow public update on chat-media" ON storage.objects;
+    CREATE POLICY "Allow public update on chat-media" ON storage.objects FOR UPDATE USING (bucket_id = 'chat-media');
+
+    DROP POLICY IF EXISTS "Allow public delete on chat-media" ON storage.objects;
+    CREATE POLICY "Allow public delete on chat-media" ON storage.objects FOR DELETE USING (bucket_id = 'chat-media');
 END $$;
