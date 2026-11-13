@@ -76,6 +76,17 @@ export default function DrawPage() {
   const strokeBufferRef = useRef<DrawStrokePayload[]>([]);
   const flushTimerRef = useRef<any>(null);
 
+  // 状态快照 Ref（用于在 resize/timer 等回调中安全读取当前阶段，避免闭包陈旧与不必要的重复触发）
+  const sessionRef = useRef<DrawSession | null>(session);
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  const roomRef = useRef<any>(room);
+  useEffect(() => {
+    roomRef.current = room;
+  }, [room]);
+
   // 稳健角色判定（严格按 host/guest 特征码判定，彻底消除身份互换后两端均卡在选词等待的 bug）
   const isPainter = session
     ? session.painter_id === userId ||
@@ -91,6 +102,9 @@ export default function DrawPage() {
 
   // 严格按 4:3 黄金比例根据容器空间计算画布尺寸，保证多端绝对等比无变形
   const updateCanvasDimensions = useCallback(() => {
+    // 关键：在结算浮层展示时直接冻结尺寸计算，防止移动端软键盘收起时引发多轮画布跳动
+    if (sessionRef.current?.status === 'settled') return;
+
     const container = containerRef.current;
     if (!container) return;
     const rect = container.getBoundingClientRect();
@@ -126,6 +140,9 @@ export default function DrawPage() {
 
   // 高清屏 (Retina / 2K+ 平板) 物理像素校准
   const calibrateCanvasResolution = useCallback(() => {
+    // 关键：在结算浮层展示时直接冻结分辨率校准，杜绝 canvas.width 重置引发的黑白屏闪烁
+    if (sessionRef.current?.status === 'settled') return;
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -143,15 +160,23 @@ export default function DrawPage() {
     redrawAll();
   }, []);
 
+  // 窗口尺寸变更防抖监听（150ms 防抖，彻底消除手机端键盘弹出/收起过程中高频触发引起的剧烈卡顿与闪烁）
   useEffect(() => {
     updateCanvasDimensions();
+    let resizeTimer: any = null;
     const handleResize = () => {
-      updateCanvasDimensions();
-      calibrateCanvasResolution();
+      if (sessionRef.current?.status === 'settled') return;
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        updateCanvasDimensions();
+      }, 150);
     };
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [updateCanvasDimensions, calibrateCanvasResolution]);
+    return () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [updateCanvasDimensions]);
 
   useEffect(() => {
     if (canvasDimensions.width > 0 && canvasDimensions.height > 0) {
@@ -159,9 +184,9 @@ export default function DrawPage() {
     }
   }, [canvasDimensions, calibrateCanvasResolution]);
 
-  // 当进入作画阶段或尺寸变更时，自动执行物理尺寸校准
+  // 当进入作画阶段时，自动执行物理尺寸校准（移除 settled 触发，避免结算时二次闪屏）
   useEffect(() => {
-    if (session?.status === 'drawing' || session?.status === 'settled') {
+    if (session?.status === 'drawing') {
       const timer = setTimeout(() => {
         updateCanvasDimensions();
         calibrateCanvasResolution();
@@ -235,7 +260,9 @@ export default function DrawPage() {
           .order('created_at', { ascending: true });
         setMessages((msgList as DrawMessage[]) || []);
       } else {
-        const partnerId = isHost ? (room?.guest_user_id || 'guest_user') : (room?.host_user_id || 'host_user');
+        const partnerId = isHost
+          ? (roomRef.current?.guest_user_id || guestId)
+          : (roomRef.current?.host_user_id || hostId);
         const { data: newSession } = await supabase
           .from('draw_sessions')
           .insert({
@@ -253,11 +280,26 @@ export default function DrawPage() {
     } catch (e) {
       console.error('初始化你画我猜失败:', e);
     }
-  }, [pairCode, userId, isHost, room]);
+  }, [pairCode, userId, isHost, hostId, guestId]);
 
   useEffect(() => {
     initOrFetchSession();
   }, [initOrFetchSession]);
+
+  // 胜利彩蛋轻量粒子动画（移动端专属调优：控制粒子数与生存周期，杜绝手机端 GPU 复合图层过载与闪烁）
+  const triggerVictoryConfetti = useCallback(() => {
+    soundEffects.playVictory();
+    try {
+      const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+      confetti({
+        particleCount: isMobile ? 28 : 55,
+        spread: 60,
+        origin: { y: 0.5 },
+        ticks: isMobile ? 65 : 120,
+        disableForReducedMotion: true,
+      });
+    } catch (_) {}
+  }, []);
 
   // 每局固定锁定 4 个候选词，避免组件渲染或重连时题目不断跳变
   useEffect(() => {
@@ -305,10 +347,7 @@ export default function DrawPage() {
       }
       if (payload.messages) setMessages(payload.messages);
       if (payload.event === 'CORRECT') {
-        soundEffects.playVictory();
-        try {
-          confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 }, ticks: 120 });
-        } catch (_) {}
+        triggerVictoryConfetti();
       } else if (payload.event === 'DING') {
         soundEffects.playDing();
       }
@@ -945,6 +984,11 @@ export default function DrawPage() {
     let nextSession = { ...session };
 
     if (isCorrect) {
+      // 1. 立即失焦手机端软键盘，杜绝键盘收起动画与 fixed 结算浮层冲突引起卡顿与视口跳动
+      if (typeof document !== 'undefined') {
+        (document.activeElement as HTMLElement)?.blur();
+      }
+
       nextSession.status = 'settled';
       nextSession.winner_id = userId;
       nextSession.ended_at = new Date().toISOString();
@@ -969,10 +1013,7 @@ export default function DrawPage() {
       };
       nextMsgs.push(systemWinMsg);
 
-      soundEffects.playVictory();
-      try {
-        confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 }, ticks: 120 });
-      } catch (_) {}
+      triggerVictoryConfetti();
     }
 
     setMessages(nextMsgs);
@@ -1498,7 +1539,7 @@ export default function DrawPage() {
 
       {/* 阶段 3：回合结算浮层弹窗（覆盖在画板之上，秒开无延迟，消除页面重排白屏与闪烁） */}
       {session?.status === 'settled' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1D2230]/75 animate-fade-in">
           <div className="bg-white rounded-2xl p-6 sm:p-8 border border-[#BDC6E3] shadow-2xl text-center space-y-4 max-w-sm w-full">
             <div className="w-12 h-12 rounded-2xl bg-[#545E79] text-white mx-auto flex items-center justify-center shadow-md border border-[#64708F]">
               <Trophy className="w-6 h-6 text-[#D8E2FD]" />
@@ -1536,7 +1577,7 @@ export default function DrawPage() {
 
       {/* 一键清空画板二次确认弹窗 */}
       {showClearConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1D2230]/75 animate-fade-in">
           <div className="bg-white rounded-2xl p-5 max-w-xs w-full shadow-2xl border border-slate-200 text-center">
             <h3 className="text-sm font-bold text-slate-900 mb-1.5">确认清空画板？</h3>
             <p className="text-xs text-slate-500 mb-4">清空后笔迹将被重置，对方画板也将同步抹除。</p>
