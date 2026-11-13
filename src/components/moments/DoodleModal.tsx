@@ -12,23 +12,23 @@ interface DoodleModalProps {
 
 // 统一标准 11 种高频预制颜色，第 12 格为自选调色器
 const PRESET_COLORS = [
-  '#0f172a', // 曜石黑
-  '#64748b', // 冷石灰
+  '#2C3345', // 典雅黛黑
+  '#545E79', // 烟青靛灰 (主题主色)
+  '#BDC6E3', // 丁香暮蓝 (主题副色)
+  '#D8E2FD', // 冰蓝高光 (主题底色)
   '#ffffff', // 纯白
   '#ef4444', // 鲜红
   '#f97316', // 暖橙
   '#eab308', // 明黄
   '#10b981', // 翡翠绿
   '#06b6d4', // 湖水青
-  '#2563eb', // 皇家蓝
-  '#8b5cf6', // 梦幻紫
   '#ec4899', // 玫瑰粉
 ];
 
 export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleModalProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [color, setColor] = useState<string>('#0f172a');
-  const [customColor, setCustomColor] = useState<string>('#8b5cf6');
+  const [color, setColor] = useState<string>('#545E79');
+  const [customColor, setCustomColor] = useState<string>('#BDC6E3');
   const [showCustomPicker, setShowCustomPicker] = useState<boolean>(false);
   const [size, setSize] = useState<number>(6);
   const [isEraser, setIsEraser] = useState<boolean>(false);
@@ -203,22 +203,22 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+      <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-[#BDC6E3] overflow-hidden flex flex-col">
         {/* 顶部标题栏 */}
-        <div className="p-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
+        <div className="p-3 border-b border-[#BDC6E3]/60 flex items-center justify-between bg-[#F5F8FE]">
           <div className="flex items-center gap-2">
-            <span className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+            <span className="w-7 h-7 rounded-lg bg-[#D8E2FD] text-[#545E79] flex items-center justify-center">
               <Palette className="w-4 h-4" />
             </span>
             <div>
-              <span className="text-xs font-bold text-slate-900 block">即兴手绘涂鸦</span>
-              <span className="text-[10px] text-slate-400">支持 11 预设色、自选 HSV 色板与无级粗细</span>
+              <span className="text-xs font-bold text-[#2C3345] block">即兴手绘涂鸦</span>
+              <span className="text-[10px] text-slate-500">支持 11 预设色、自选 HSV 色板与无级粗细</span>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/50"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-[#EEF3FD]"
           >
             <X className="w-4 h-4" />
           </button>
@@ -226,7 +226,7 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
 
         {/* 画布区域 */}
         <div
-          className="p-3 bg-slate-100 flex justify-center"
+          className="p-3 bg-[#EEF3FD] flex justify-center"
           style={{ touchAction: 'none', overscrollBehavior: 'none' }}
         >
           <canvas
@@ -235,7 +235,7 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
-            className="w-full h-[280px] sm:h-[320px] bg-white rounded-xl shadow-inner border border-slate-200 cursor-crosshair"
+            className="w-full h-[280px] sm:h-[320px] bg-white rounded-xl shadow-inner border border-[#BDC6E3] cursor-crosshair"
             style={{ touchAction: 'none' }}
           />
         </div>
@@ -350,7 +350,7 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
                   step={1}
                   value={size}
                   onChange={(e) => setSize(Number(e.target.value))}
-                  className="w-14 sm:w-20 accent-slate-900 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
+                  className="w-14 sm:w-20 accent-[#545E79] h-1.5 bg-[#EEF3FD] rounded-lg cursor-pointer"
                   title={`调整笔刷粗细: ${size}px`}
                 />
                 <span className="text-[10px] font-mono font-bold text-slate-700 w-6 text-right">
@@ -364,8 +364,8 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
                 onClick={() => setIsEraser(!isEraser)}
                 className={`p-1 rounded-md border text-xs transition-all flex items-center gap-1 ${
                   isEraser
-                    ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    ? 'bg-[#545E79] text-white border-[#545E79]'
+                    : 'bg-white text-slate-600 border-[#BDC6E3] hover:bg-[#EEF3FD]'
                 }`}
                 title="橡皮擦"
               >
@@ -375,11 +375,11 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
           </div>
 
           {/* 第二排：确认插入动态 */}
-          <div className="flex items-center justify-end pt-1 border-t border-slate-100">
+          <div className="flex items-center justify-end pt-1 border-t border-[#BDC6E3]/50">
             <button
               type="button"
               onClick={handleConfirm}
-              className="px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold shadow-md transition-all flex items-center gap-1.5"
+              className="px-4 py-1.5 rounded-xl bg-[#545E79] hover:bg-[#3D465C] text-white text-xs font-bold shadow-md transition-all flex items-center gap-1.5"
             >
               <Check className="w-3.5 h-3.5" />
               <span>确定并插入动态</span>

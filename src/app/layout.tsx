@@ -23,7 +23,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className="antialiased min-h-screen flex flex-col bg-slate-50 text-slate-900">
+      <body className="antialiased min-h-screen flex flex-col bg-[#EEF3FD] text-[#2C3345]">
         <PairAuthProvider>
           <Navbar />
           <main className="flex-1 min-h-0 flex flex-col">

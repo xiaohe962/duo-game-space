@@ -26,18 +26,18 @@ import {
   Sliders,
 } from 'lucide-react';
 
-// 精确控制在 11 种高频预制颜色，第 12 个格子为自选调色器
+// 精确控制在 11 种高频预制颜色（包含主题深烟青 #545E79、丁香暮蓝 #BDC6E3 与淡冰蓝 #D8E2FD），第 12 个格子为自选调色器
 const PRESET_COLORS = [
-  '#0f172a', // 曜石黑
-  '#64748b', // 冷石灰
+  '#2C3345', // 调色盘主暗色
+  '#545E79', // 调色盘深烟青 (核心主色)
+  '#BDC6E3', // 调色盘丁香暮蓝 (核心辅色)
+  '#D8E2FD', // 调色盘淡冰蓝紫 (核心浅色)
   '#ffffff', // 纯白
   '#ef4444', // 鲜红
   '#f97316', // 暖橙
   '#eab308', // 明黄
   '#10b981', // 翡翠绿
-  '#06b6d4', // 湖水青
   '#2563eb', // 皇家蓝
-  '#8b5cf6', // 梦幻紫
   '#ec4899', // 玫瑰粉
 ];
 
@@ -52,9 +52,9 @@ export default function DrawPage() {
   const [inputGuess, setInputGuess] = useState('');
   const [remainingTime, setRemainingTime] = useState<number>(120);
 
-  // 画板绘图配置（11 预设色 + 1 自选色 + 自由连续粗细 1~40px）
-  const [brushColor, setBrushColor] = useState<string>('#0f172a');
-  const [customColor, setCustomColor] = useState<string>('#8b5cf6');
+  // 画板绘图配置（默认采用主题深烟青 #545E79，自选色预设为丁香暮蓝 #BDC6E3）
+  const [brushColor, setBrushColor] = useState<string>('#545E79');
+  const [customColor, setCustomColor] = useState<string>('#BDC6E3');
   const [showCustomPicker, setShowCustomPicker] = useState<boolean>(false);
   const [brushSize, setBrushSize] = useState<number>(6);
   const [isEraser, setIsEraser] = useState<boolean>(false);
@@ -1092,19 +1092,19 @@ export default function DrawPage() {
   return (
     <div className="h-[calc(100dvh-50px)] max-w-6xl mx-auto px-2 sm:px-4 py-1.5 flex flex-col justify-between space-y-1.5 overflow-hidden">
       {/* 极简紧凑顶部栏：支持手机两行自适应，防止内容拥挤 */}
-      <div className="bg-white rounded-xl px-2.5 sm:px-3 py-1.5 border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-y-1.5 gap-x-2 shrink-0">
+      <div className="bg-white rounded-xl px-2.5 sm:px-3 py-1.5 border border-[#BDC6E3] shadow-xs flex flex-wrap items-center justify-between gap-y-1.5 gap-x-2 shrink-0">
         {/* 左侧：局数徽章 + 角色状态 */}
         <div className="flex items-center gap-1.5 sm:gap-2">
-          <span className="px-2 py-0.5 rounded-md bg-slate-900 text-white font-mono font-bold text-xs shadow-xs">
+          <span className="px-2 py-0.5 rounded-md bg-[#545E79] text-white font-mono font-bold text-xs shadow-xs">
             R{session?.round_number || 1}
           </span>
-          <span className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+          <span className="text-xs font-semibold text-[#2C3345] flex items-center gap-1">
             {isPainter ? (
-              <span className="text-blue-600 flex items-center gap-1 font-bold">
-                <Palette className="w-3.5 h-3.5" /> 作画中
+              <span className="text-[#545E79] flex items-center gap-1 font-bold">
+                <Palette className="w-3.5 h-3.5 text-[#545E79]" /> 作画中
               </span>
             ) : (
-              <span className="text-emerald-600 flex items-center gap-1 font-bold">
+              <span className="text-[#487265] flex items-center gap-1 font-bold">
                 👀 竞猜中
               </span>
             )}
@@ -1117,10 +1117,10 @@ export default function DrawPage() {
           <button
             type="button"
             onClick={handleRestartGame}
-            className="px-2 sm:px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 text-xs font-semibold flex items-center gap-1 transition-all active:scale-95"
+            className="px-2 sm:px-2.5 py-1 rounded-lg bg-[#EEF3FD] hover:bg-[#D8E2FD] text-[#545E79] hover:text-[#2C3345] text-xs font-semibold flex items-center gap-1 transition-all active:scale-95 border border-[#BDC6E3]/60"
             title="重置对局并重新开始"
           >
-            <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
+            <RotateCcw className="w-3.5 h-3.5 text-[#545E79]" />
             <span className="text-[11px] sm:text-xs">重新开始</span>
           </button>
 
@@ -1129,17 +1129,17 @@ export default function DrawPage() {
               className={`flex items-center gap-1 px-2 sm:px-2.5 py-0.5 rounded-lg text-xs font-bold font-mono transition-colors ${
                 remainingTime <= 30
                   ? 'bg-rose-500 text-white animate-pulse'
-                  : 'bg-slate-900 text-white'
+                  : 'bg-[#545E79] text-white'
               }`}
             >
-              <Timer className="w-3.5 h-3.5" />
+              <Timer className="w-3.5 h-3.5 text-[#D8E2FD]" />
               <span>{remainingTime}s</span>
             </div>
           )}
           <button
             type="button"
             onClick={() => router.push('/lobby')}
-            className="px-2 py-0.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors text-xs touch-manipulation select-none cursor-pointer"
+            className="px-2 py-0.5 rounded-lg text-[#64708F] hover:text-[#2C3345] hover:bg-[#EEF3FD] transition-colors text-xs touch-manipulation select-none cursor-pointer"
             title="返回大厅"
           >
             退出
@@ -1147,9 +1147,9 @@ export default function DrawPage() {
         </div>
 
         {/* 题目胶囊（开局仅显示字数，60s后仅显示分类）手机端放第二行，大屏居中 */}
-        <div className="order-3 sm:order-2 w-full sm:w-auto px-2.5 sm:px-3 py-1 sm:py-0.5 rounded-lg bg-slate-100 border border-slate-200/80 flex items-center justify-center sm:justify-start gap-1.5 shadow-inner">
-          <span className="text-[10px] text-slate-400 font-mono font-medium">题目:</span>
-          <span className="text-xs font-bold text-slate-900 font-mono tracking-wider truncate">
+        <div className="order-3 sm:order-2 w-full sm:w-auto px-2.5 sm:px-3 py-1 sm:py-0.5 rounded-lg bg-[#EEF3FD] border border-[#BDC6E3] flex items-center justify-center sm:justify-start gap-1.5 shadow-inner">
+          <span className="text-[10px] text-[#64708F] font-mono font-medium">题目:</span>
+          <span className="text-xs font-bold text-[#2C3345] font-mono tracking-wider truncate">
             {isPainter ? session?.word || '挑选题目中...' : getGuesserWordMask()}
           </span>
         </div>
@@ -1157,14 +1157,14 @@ export default function DrawPage() {
 
       {/* 阶段 1：画师挑选词条 */}
       {session?.status === 'word_selection' && (
-        <div className="bg-white rounded-2xl p-6 md:p-10 border border-slate-200 shadow-sm flex-1 flex flex-col justify-center">
+        <div className="bg-white rounded-2xl p-6 md:p-10 border border-[#BDC6E3] shadow-sm flex-1 flex flex-col justify-center">
           {isPainter ? (
             <div className="space-y-4 max-w-md mx-auto text-center">
-              <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-800 mx-auto flex items-center justify-center">
+              <div className="w-10 h-10 rounded-xl bg-[#EEF3FD] text-[#545E79] mx-auto flex items-center justify-center border border-[#BDC6E3]">
                 <Palette className="w-5 h-5" />
               </div>
-              <h2 className="text-base font-bold text-slate-900">请选择你要画的词条</h2>
-              <p className="text-xs text-slate-500">
+              <h2 className="text-base font-bold text-[#2C3345]">请选择你要画的词条</h2>
+              <p className="text-xs text-[#64708F]">
                 选定后将进入 120 秒作画时间，另一端将实时看到你的画作！
               </p>
 
@@ -1173,12 +1173,12 @@ export default function DrawPage() {
                   <button
                     key={word.id}
                     onClick={() => handleSelectWord(word)}
-                    className="p-3.5 rounded-xl bg-slate-50 hover:bg-white border border-slate-200 hover:border-blue-500 text-left transition-all shadow-sm group"
+                    className="p-3.5 rounded-xl bg-[#F7FAFE] hover:bg-[#EEF3FD] border border-[#BDC6E3] hover:border-[#545E79] text-left transition-all shadow-xs group"
                   >
-                    <span className="text-xs font-bold text-slate-900 group-hover:text-blue-600 block">
+                    <span className="text-xs font-bold text-[#2C3345] group-hover:text-[#545E79] block">
                       {word.name}
                     </span>
-                    <span className="text-[11px] text-slate-400 mt-1 block">
+                    <span className="text-[11px] text-[#64708F] mt-1 block">
                       分类：{word.theme}
                     </span>
                   </button>
@@ -1190,23 +1190,23 @@ export default function DrawPage() {
                 <button
                   type="button"
                   onClick={handleRefreshWords}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-white text-xs text-slate-600 hover:text-slate-900 font-medium transition-all shadow-sm active:scale-95"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-[#BDC6E3] hover:border-[#545E79] bg-[#EEF3FD] hover:bg-white text-xs text-[#545E79] hover:text-[#2C3345] font-medium transition-all shadow-xs active:scale-95"
                 >
-                  <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
+                  <RefreshCw className="w-3.5 h-3.5 text-[#545E79]" />
                   <span>换一批题目</span>
                 </button>
               </div>
             </div>
           ) : (
             <div className="py-12 sm:py-16 text-center space-y-4 max-w-sm mx-auto">
-              <div className="w-12 h-12 mx-auto rounded-xl bg-slate-100 text-slate-500 flex items-center justify-center shadow-xs">
-                <Sparkles className="w-6 h-6 text-amber-500" />
+              <div className="w-12 h-12 mx-auto rounded-xl bg-[#EEF3FD] text-[#545E79] flex items-center justify-center shadow-xs border border-[#BDC6E3]">
+                <Sparkles className="w-6 h-6 text-[#545E79]" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-slate-900">
+                <h3 className="text-sm font-bold text-[#2C3345]">
                   {partnerNickname} 正在挑选题目...
                 </h3>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                <p className="text-xs text-[#64708F] mt-1 leading-relaxed">
                   如果两端同时卡在等待状态或你想直接作画，可点击下方按钮切换画师或重置。
                 </p>
               </div>
@@ -1216,7 +1216,7 @@ export default function DrawPage() {
                 <button
                   type="button"
                   onClick={handleTakeOverPainter}
-                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl bg-[#545E79] hover:bg-[#3D465C] text-white font-semibold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation cursor-pointer"
                   title="由我开始选词作画，立即解除等待"
                 >
                   <Palette className="w-3.5 h-3.5" />
@@ -1225,10 +1225,10 @@ export default function DrawPage() {
                 <button
                   type="button"
                   onClick={handleRestartGame}
-                  className="px-4 py-2.5 rounded-xl border border-slate-200 hover:border-slate-300 bg-slate-50 hover:bg-white text-slate-700 font-semibold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation cursor-pointer"
+                  className="px-4 py-2.5 rounded-xl border border-[#BDC6E3] hover:border-[#545E79] bg-[#EEF3FD] hover:bg-white text-[#545E79] font-semibold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation cursor-pointer"
                   title="重置本局状态"
                 >
-                  <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+                  <RotateCcw className="w-3.5 h-3.5 text-[#545E79]" />
                   <span>重置本局状态</span>
                 </button>
               </div>
@@ -1245,7 +1245,7 @@ export default function DrawPage() {
             {/* Canvas 画板容器（固定 4:3 比例容器，绝对消除不同设备屏幕比例导致的图形拉伸变形） */}
             <div
               ref={containerRef}
-              className="relative bg-slate-100/70 rounded-xl border border-slate-200 shadow-xs p-1 flex-1 flex items-center justify-center min-h-[220px] md:min-h-0 overflow-hidden"
+              className="relative bg-[#EEF3FD] rounded-xl border border-[#BDC6E3] shadow-xs p-1 flex-1 flex items-center justify-center min-h-[180px] overflow-hidden"
               style={{ touchAction: 'none', overscrollBehavior: 'none' }}
             >
               <div
@@ -1256,7 +1256,7 @@ export default function DrawPage() {
                   maxWidth: '100%',
                   maxHeight: '100%',
                 }}
-                className="relative bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden flex items-center justify-center"
+                className="relative bg-white rounded-lg border border-[#BDC6E3]/60 shadow-sm overflow-hidden flex items-center justify-center"
               >
                 <canvas
                   ref={canvasRef}
@@ -1274,7 +1274,7 @@ export default function DrawPage() {
                 />
 
                 {!isPainter && session?.status === 'drawing' && (
-                  <div className="absolute top-2 left-2 pointer-events-none bg-slate-900/80 text-white backdrop-blur-sm px-2 py-0.5 rounded text-[10px] font-mono">
+                  <div className="absolute top-2 left-2 pointer-events-none bg-[#2C3345]/85 text-[#D8E2FD] backdrop-blur-sm px-2 py-0.5 rounded text-[10px] font-mono border border-[#545E79]/50">
                     LIVE · 正在实时观摩 {partnerNickname} 作画
                   </div>
                 )}
@@ -1283,7 +1283,7 @@ export default function DrawPage() {
 
             {/* 画师工具条（11 预设色 + 1 自选色 | 撤销 & 清屏 (放在粗细左边) | 笔刷粗细滑块 & 预览 & 橡皮擦） */}
             {isPainter && (
-              <div className="bg-white rounded-xl p-2 border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="bg-white rounded-xl p-2 border border-[#BDC6E3] shadow-xs flex flex-wrap items-center justify-between gap-2 shrink-0">
                 {/* 11 色预设色盘 + 第 12 格自选色 */}
                 <div className="flex items-center flex-wrap gap-1">
                   {PRESET_COLORS.map((c) => (
@@ -1297,7 +1297,7 @@ export default function DrawPage() {
                       style={{ backgroundColor: c }}
                       className={`w-5 h-5 rounded-md border transition-all ${
                         brushColor === c && !isEraser
-                          ? 'scale-125 ring-2 ring-slate-900 border-white shadow-sm'
+                          ? 'scale-125 ring-2 ring-[#545E79] border-white shadow-sm'
                           : 'border-slate-300 hover:scale-110'
                       }`}
                       title={c}
@@ -1313,7 +1313,7 @@ export default function DrawPage() {
                       title="第12格：自定义HSV色彩"
                       className={`relative w-5 h-5 rounded-md border transition-all flex items-center justify-center ${
                         brushColor === customColor && !isEraser
-                          ? 'scale-125 ring-2 ring-blue-500 border-white shadow-md'
+                          ? 'scale-125 ring-2 ring-[#545E79] border-white shadow-md'
                           : 'border-slate-300 hover:scale-110'
                       }`}
                     >
@@ -1348,7 +1348,7 @@ export default function DrawPage() {
                   <button
                     type="button"
                     onClick={handleUndo}
-                    className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs flex items-center gap-1 font-medium transition-all active:scale-95"
+                    className="px-2 py-1 rounded-lg bg-[#EEF3FD] hover:bg-[#D8E2FD] text-[#545E79] text-xs flex items-center gap-1 font-medium transition-all active:scale-95 border border-[#BDC6E3]/60"
                     title="撤销上一笔（按完整笔划）"
                   >
                     <Undo2 className="w-3.5 h-3.5" />
@@ -1357,7 +1357,7 @@ export default function DrawPage() {
                   <button
                     type="button"
                     onClick={() => setShowClearConfirm(true)}
-                    className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-700 text-xs flex items-center gap-1 font-medium transition-all"
+                    className="px-2 py-1 rounded-lg bg-[#EEF3FD] hover:bg-red-50 hover:text-red-600 text-[#545E79] text-xs flex items-center gap-1 font-medium transition-all border border-[#BDC6E3]/60"
                     title="一键清空画板"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -1366,17 +1366,17 @@ export default function DrawPage() {
                 </div>
 
                 {/* 粗细自由滑动调节与笔刷尺寸视觉预览圆点（位于撤销清屏右边） */}
-                <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
+                <div className="flex items-center gap-1.5 bg-[#F7FAFE] px-2 py-1 rounded-lg border border-[#BDC6E3]">
                   {/* 实时尺寸预览圆点 */}
                   <div
-                    className="w-5 h-5 rounded-md bg-white border border-slate-200 flex items-center justify-center shrink-0"
+                    className="w-5 h-5 rounded-md bg-white border border-[#BDC6E3] flex items-center justify-center shrink-0"
                     title={`当前笔刷粗细: ${brushSize}px`}
                   >
                     <div
                       style={{
                         width: Math.min(18, Math.max(2, brushSize)),
                         height: Math.min(18, Math.max(2, brushSize)),
-                        backgroundColor: isEraser ? '#94a3b8' : brushColor,
+                        backgroundColor: isEraser ? '#BDC6E3' : brushColor,
                       }}
                       className="rounded-full shadow-xs transition-all"
                     />
@@ -1391,10 +1391,10 @@ export default function DrawPage() {
                       step={1}
                       value={brushSize}
                       onChange={(e) => setBrushSize(Number(e.target.value))}
-                      className="w-14 sm:w-20 accent-slate-900 h-1.5 bg-slate-200 rounded-lg cursor-pointer"
+                      className="w-14 sm:w-20 accent-[#545E79] h-1.5 bg-[#CAD4EE] rounded-lg cursor-pointer"
                       title={`自由调整粗细: ${brushSize}px`}
                     />
-                    <span className="text-[10px] font-mono font-bold text-slate-700 w-6 text-right">
+                    <span className="text-[10px] font-mono font-bold text-[#2C3345] w-6 text-right">
                       {brushSize}px
                     </span>
                   </div>
@@ -1405,8 +1405,8 @@ export default function DrawPage() {
                     onClick={() => setIsEraser(!isEraser)}
                     className={`p-1 rounded-lg border transition-all ${
                       isEraser
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'border-slate-200 text-slate-500 hover:bg-white'
+                        ? 'bg-[#545E79] text-white border-[#545E79]'
+                        : 'border-[#BDC6E3] text-[#545E79] hover:bg-white'
                     }`}
                     title="橡皮擦"
                   >
@@ -1418,13 +1418,13 @@ export default function DrawPage() {
           </div>
 
           {/* 下半部：聊天与竞猜互动区（置于画板下方横向满宽，高度紧凑，保障画板最大可视区） */}
-          <div className="bg-white rounded-xl p-2 sm:p-2.5 border border-slate-200 shadow-xs flex flex-col justify-between shrink-0 h-[130px] sm:h-[145px] md:h-[160px] overflow-hidden">
-            <div className="flex items-center justify-between pb-1 border-b border-slate-100 shrink-0">
-              <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1 font-mono uppercase">
-                <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+          <div className="bg-white rounded-xl p-2 sm:p-2.5 border border-[#BDC6E3] shadow-xs flex flex-col justify-between shrink-0 h-[130px] sm:h-[145px] md:h-[160px] overflow-hidden">
+            <div className="flex items-center justify-between pb-1 border-b border-[#CAD4EE]/50 shrink-0">
+              <h3 className="text-xs font-bold text-[#2C3345] flex items-center gap-1 font-mono uppercase">
+                <MessageSquare className="w-3.5 h-3.5 text-[#545E79]" />
                 Live Chat & Guess
               </h3>
-              <span className="text-[10px] text-slate-400 font-mono">REALTIME</span>
+              <span className="text-[10px] text-[#64708F] font-mono">REALTIME</span>
             </div>
 
             {/* 消息滚动流（自动吸底） */}
@@ -1433,7 +1433,7 @@ export default function DrawPage() {
               className="flex-1 min-h-0 overflow-y-auto space-y-1 py-1 pr-1 no-scrollbar text-xs"
             >
               {messages.length === 0 ? (
-                <div className="py-8 text-center text-slate-400 text-xs font-mono">
+                <div className="py-8 text-center text-[#64708F] text-xs font-mono">
                   输入文字直接发起竞猜
                 </div>
               ) : (
@@ -1442,7 +1442,7 @@ export default function DrawPage() {
                     return (
                       <div
                         key={m.id}
-                        className="py-1 px-2 rounded-lg bg-slate-100 text-slate-600 text-center text-[10px] font-mono"
+                        className="py-1 px-2 rounded-lg bg-[#EEF3FD] text-[#545E79] text-center text-[10px] font-mono border border-[#BDC6E3]/50"
                       >
                         {m.message}
                       </div>
@@ -1454,16 +1454,16 @@ export default function DrawPage() {
                       key={m.id}
                       className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}
                     >
-                      <span className="text-[9px] text-slate-400 mb-0.5 font-mono">
+                      <span className="text-[9px] text-[#64708F] mb-0.5 font-mono">
                         {m.sender_nickname}
                       </span>
                       <div
                         className={`px-2.5 py-1 rounded-lg max-w-[85%] break-words ${
                           m.is_correct
-                            ? 'bg-emerald-600 text-white font-bold shadow-xs'
+                            ? 'bg-[#487265] text-white font-bold shadow-xs'
                             : isMine
-                            ? 'bg-slate-900 text-white'
-                            : 'bg-slate-100 text-slate-800'
+                            ? 'bg-[#545E79] text-white'
+                            : 'bg-[#EEF3FD] text-[#2C3345] border border-[#BDC6E3]/60'
                         }`}
                       >
                         {m.message}
@@ -1475,18 +1475,18 @@ export default function DrawPage() {
             </div>
 
             {/* 底部输入框 */}
-            <form onSubmit={handleSendMessage} className="pt-1.5 border-t border-slate-100 flex gap-1.5 shrink-0">
+            <form onSubmit={handleSendMessage} className="pt-1.5 border-t border-[#CAD4EE]/50 flex gap-1.5 shrink-0">
               <input
                 type="text"
                 placeholder={isPainter ? '发送消息交流...' : '输入答案竞猜...'}
                 value={inputGuess}
                 onChange={(e) => setInputGuess(e.target.value)}
-                className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-slate-900 bg-slate-50"
+                className="flex-1 px-3 py-1.5 rounded-lg border border-[#BDC6E3] text-xs focus:outline-none focus:ring-2 focus:ring-[#545E79] bg-[#F7FAFE] text-[#2C3345]"
               />
               <button
                 type="submit"
                 disabled={!inputGuess.trim()}
-                className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 text-white text-xs font-semibold shadow-xs transition-all flex items-center gap-1 font-mono"
+                className="px-3.5 py-1.5 rounded-lg bg-[#545E79] hover:bg-[#3D465C] disabled:bg-[#CAD4EE] text-white text-xs font-semibold shadow-xs transition-all flex items-center gap-1 font-mono active:scale-95"
               >
                 <Send className="w-3 h-3" />
                 {isPainter ? '发' : '猜'}
@@ -1499,17 +1499,17 @@ export default function DrawPage() {
       {/* 阶段 3：回合结算浮层弹窗（覆盖在画板之上，秒开无延迟，消除页面重排白屏与闪烁） */}
       {session?.status === 'settled' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
-          <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200 shadow-2xl text-center space-y-4 max-w-sm w-full">
-            <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white mx-auto flex items-center justify-center shadow-md">
-              <Trophy className="w-6 h-6 text-amber-400" />
+          <div className="bg-white rounded-2xl p-6 sm:p-8 border border-[#BDC6E3] shadow-2xl text-center space-y-4 max-w-sm w-full">
+            <div className="w-12 h-12 rounded-2xl bg-[#545E79] text-white mx-auto flex items-center justify-center shadow-md border border-[#64708F]">
+              <Trophy className="w-6 h-6 text-[#D8E2FD]" />
             </div>
 
             <div>
-              <h2 className="text-base font-bold text-slate-900">
+              <h2 className="text-base font-bold text-[#2C3345]">
                 {session.winner_id ? '🎯 竞猜成功！' : '本轮时间到'}
               </h2>
-              <p className="text-xs text-slate-500 mt-1 font-mono">
-                正确答案: <strong className="text-sm font-bold text-slate-900">{session.word}</strong>
+              <p className="text-xs text-[#64708F] mt-1 font-mono">
+                正确答案: <strong className="text-sm font-bold text-[#2C3345]">{session.word}</strong>
               </p>
             </div>
 
@@ -1517,7 +1517,7 @@ export default function DrawPage() {
               <button
                 type="button"
                 onClick={() => handleStartNextRound(true)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 touch-manipulation cursor-pointer active:scale-95"
+                className="flex-1 py-2.5 rounded-xl bg-[#545E79] hover:bg-[#3D465C] text-white font-semibold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 touch-manipulation cursor-pointer active:scale-95"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 互换画师再来一局
@@ -1525,7 +1525,7 @@ export default function DrawPage() {
               <button
                 type="button"
                 onClick={() => handleStartNextRound(false)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-100 transition-colors touch-manipulation cursor-pointer active:scale-95"
+                className="flex-1 py-2.5 rounded-xl border border-[#BDC6E3] text-[#545E79] font-semibold text-xs hover:bg-[#EEF3FD] transition-colors touch-manipulation cursor-pointer active:scale-95"
               >
                 保持角色继续
               </button>

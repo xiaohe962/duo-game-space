@@ -186,11 +186,11 @@ export default function CustomColorPicker({ color, onChange, onClose }: CustomCo
 
   return (
     <div
-      className="bg-[#1e1e24] text-white rounded-2xl p-3.5 shadow-2xl border border-slate-700/80 w-[240px] sm:w-[260px] select-none"
+      className="bg-[#2C3345] text-white rounded-2xl p-3.5 shadow-2xl border border-[#BDC6E3]/40 w-[240px] sm:w-[260px] select-none"
       onClick={(e) => e.stopPropagation()}
     >
       {/* 顶部标题与关闭 */}
-      <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800">
+      <div className="flex items-center justify-between pb-2 mb-2 border-b border-[#3D465C]">
         <div className="flex items-center gap-1.5">
           <span
             className="w-3.5 h-3.5 rounded-full border border-white/40 shadow-sm"
@@ -204,7 +204,7 @@ export default function CustomColorPicker({ color, onChange, onClose }: CustomCo
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+            className="p-1 rounded-lg hover:bg-[#3D465C] text-slate-400 hover:text-white transition-colors"
           >
             <X className="w-3.5 h-3.5" />
           </button>

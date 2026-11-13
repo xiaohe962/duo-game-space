@@ -1027,19 +1027,19 @@ export default function MomentsPage() {
   return (
     <div className="h-[calc(100dvh-50px)] max-w-3xl mx-auto px-2 sm:px-4 py-1.5 flex flex-col justify-between overflow-hidden">
       {/* 顶部紧凑看板：徽章条与对方状态（自适应小屏，拥挤时自动换行） */}
-      <div className="bg-slate-900 rounded-xl px-3 py-2 text-white border border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-y-2 gap-x-2 shrink-0">
+      <div className="bg-[#2C3345] rounded-xl px-3 py-2 text-white border border-[#3D465C] shadow-xs flex flex-wrap items-center justify-between gap-y-2 gap-x-2 shrink-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             onClick={() => {
               setPrefilledPostId(null);
               setShowBadgeLedger(true);
             }}
-            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-rose-500/50 text-xs transition-all shadow-xs group"
+            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-[#3D465C] hover:bg-[#545E79] border border-[#545E79] text-xs transition-all shadow-xs group"
           >
             <Award className="w-3.5 h-3.5 text-rose-400 group-hover:scale-110 transition-transform" />
             <span className="font-semibold text-rose-300">🌸 我的红花: {myFlowerCount}</span>
-            <span className="text-slate-500 font-mono text-[10px]">|</span>
-            <span className="text-slate-300">TA: {partnerFlowerCount}</span>
+            <span className="text-slate-400 font-mono text-[10px]">|</span>
+            <span className="text-[#D8E2FD]">TA: {partnerFlowerCount}</span>
           </button>
 
           {(['star', 'coffee', 'hug'] as BadgeType[]).map((bType) => {
@@ -1049,7 +1049,7 @@ export default function MomentsPage() {
               <button
                 key={bType}
                 onClick={() => setShowBadgeLedger(true)}
-                className="px-2 py-0.5 rounded-md bg-slate-800/60 hover:bg-slate-800 border border-slate-700 text-[11px] text-slate-300 flex items-center gap-1"
+                className="px-2 py-0.5 rounded-md bg-[#3D465C]/80 hover:bg-[#545E79] border border-[#545E79] text-[11px] text-[#D8E2FD] flex items-center gap-1"
               >
                 <span>{cfg.emoji}</span>
                 <span className="font-mono font-bold">{cnt}</span>
@@ -1059,15 +1059,15 @@ export default function MomentsPage() {
         </div>
 
         {/* 对方实时状态 */}
-        <div className="text-[11px] font-mono text-slate-300 flex items-center gap-1.5 bg-slate-800 px-2 py-0.5 rounded-lg border border-slate-700 ml-auto sm:ml-0">
+        <div className="text-[11px] font-mono text-slate-300 flex items-center gap-1.5 bg-[#3D465C] px-2 py-0.5 rounded-lg border border-[#545E79] ml-auto sm:ml-0">
           <span className="text-slate-400">{partnerNickname}:</span>
           {partnerStatus ? (
-            <span className="text-blue-300 font-semibold flex items-center gap-1">
+            <span className="text-[#D8E2FD] font-semibold flex items-center gap-1">
               <span>{partnerStatus.status_icon}</span>
               <span>{partnerStatus.status_text}</span>
             </span>
           ) : (
-            <span className="text-slate-500">在线</span>
+            <span className="text-slate-400">在线</span>
           )}
         </div>
       </div>
@@ -1125,15 +1125,15 @@ export default function MomentsPage() {
                   <div
                     className={`relative p-3 rounded-2xl shadow-xs transition-all max-w-[88%] sm:max-w-[78%] ${
                       isMine
-                        ? 'bg-blue-600 text-white rounded-tr-xs'
-                        : 'bg-white border border-slate-200/90 text-slate-900 rounded-tl-xs'
+                        ? 'bg-[#545E79] text-white rounded-tr-xs'
+                        : 'bg-white border border-[#BDC6E3] text-[#2C3345] rounded-tl-xs'
                     }`}
                   >
                     {/* 心情角标（仅当有 mood 时显示） */}
                     {post.mood && (
                       <div
                         className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full mb-1.5 font-medium ${
-                          isMine ? 'bg-blue-700/80 text-blue-100' : 'bg-slate-100 text-slate-700'
+                          isMine ? 'bg-[#3D465C] text-[#D8E2FD]' : 'bg-[#EEF3FD] text-[#545E79]'
                         }`}
                       >
                         <span>{post.mood}</span>
@@ -1156,8 +1156,8 @@ export default function MomentsPage() {
                           }}
                           className={`text-xs p-2 rounded-lg border-l-2 mb-2 flex items-center justify-between gap-2 cursor-pointer transition-all active:scale-[0.98] hover:opacity-90 ${
                             isMine
-                              ? 'bg-blue-700/60 border-blue-300 text-blue-100 hover:bg-blue-700/80'
-                              : 'bg-slate-50 border-blue-500 text-slate-600 hover:bg-slate-100'
+                              ? 'bg-[#3D465C]/80 border-[#D8E2FD] text-[#D8E2FD] hover:bg-[#3D465C]'
+                              : 'bg-[#EEF3FD] border-[#545E79] text-[#2C3345] hover:bg-[#D8E2FD]/50'
                           }`}
                           title="点击快速跳转至原消息位置"
                         >
@@ -1235,7 +1235,7 @@ export default function MomentsPage() {
                     <button
                       type="button"
                       onClick={() => handleStartReply(post)}
-                      className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
+                      className="p-1 text-slate-400 hover:text-[#545E79] transition-colors"
                       title="引用回复"
                     >
                       <MessageSquareReply className="w-3.5 h-3.5" />
@@ -1276,7 +1276,7 @@ export default function MomentsPage() {
       </div>
 
       {/* 底部固定输入区（QQ 式输入条，紧贴底部防输入法遮挡） */}
-      <div className="sticky bottom-0 z-20 bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200/90 shadow-md p-2 sm:p-2.5 space-y-1.5 shrink-0 mt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className="sticky bottom-0 z-20 bg-white/95 backdrop-blur-md rounded-2xl border border-[#BDC6E3] shadow-md p-2 sm:p-2.5 space-y-1.5 shrink-0 mt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {/* 引用回复提示条（带图片/涂鸦缩略图） */}
         {replyingTo && (() => {
           const replyingImages = replyingTo.image_url ? parseImages(replyingTo.image_url) : [];
@@ -1285,9 +1285,9 @@ export default function MomentsPage() {
             : replyingTo.content.slice(0, 30);
 
           return (
-            <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-2.5 py-1 text-xs text-blue-900 animate-fade-in">
+            <div className="flex items-center justify-between bg-[#EEF3FD] border border-[#BDC6E3] rounded-lg px-2.5 py-1 text-xs text-[#2C3345] animate-fade-in">
               <div className="flex items-center gap-2 truncate">
-                <MessageSquareReply className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <MessageSquareReply className="w-3.5 h-3.5 text-[#545E79] shrink-0" />
                 <span className="truncate">
                   回复 <strong>@{replyingTo.author_nickname}</strong>: {displayContent}
                 </span>
@@ -1295,14 +1295,14 @@ export default function MomentsPage() {
                   <img
                     src={replyingImages[0]}
                     alt="引用缩略图"
-                    className="w-5 h-5 rounded object-cover border border-blue-200 shrink-0 shadow-2xs"
+                    className="w-5 h-5 rounded object-cover border border-[#BDC6E3] shrink-0 shadow-2xs"
                   />
                 )}
               </div>
               <button
                 type="button"
                 onClick={() => setReplyingTo(null)}
-                className="text-blue-400 hover:text-blue-700 ml-2"
+                className="text-[#64708F] hover:text-[#2C3345] ml-2"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -1314,18 +1314,18 @@ export default function MomentsPage() {
         {attachedImages.length > 0 && (
           <div className="flex items-center gap-2 overflow-x-auto py-1 no-scrollbar animate-fade-in">
             {attachedImages.map((img, i) => (
-              <div key={i} className="relative shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-slate-200">
+              <div key={i} className="relative shrink-0 w-14 h-14 rounded-lg overflow-hidden border border-[#BDC6E3]">
                 <img src={img} alt="preview" className="w-full h-full object-cover" />
                 <button
                   type="button"
                   onClick={() => setAttachedImages((prev) => prev.filter((_, idx) => idx !== i))}
-                  className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-slate-900/80 text-white flex items-center justify-center text-[10px]"
+                  className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-[#545E79] text-white flex items-center justify-center text-[10px]"
                 >
                   <X className="w-2.5 h-2.5" />
                 </button>
               </div>
             ))}
-            <span className="text-[10px] text-slate-400 font-mono shrink-0">
+            <span className="text-[10px] text-[#64708F] font-mono shrink-0">
               已选 {attachedImages.length} 张
             </span>
           </div>
@@ -1339,7 +1339,7 @@ export default function MomentsPage() {
         )}
 
         {/* 工具栏排：多选图片、即兴涂鸦、心情选择（支持空心情）、打卡入口 */}
-        <div className="flex items-center justify-between gap-1 text-slate-600">
+        <div className="flex items-center justify-between gap-1 text-[#545E79]">
           <div className="flex items-center gap-1">
             {/* 多图上传 */}
             <input
@@ -1353,10 +1353,10 @@ export default function MomentsPage() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 flex items-center gap-1 text-xs transition-colors"
+              className="p-1.5 rounded-lg hover:bg-[#EEF3FD] text-[#545E79] flex items-center gap-1 text-xs transition-colors"
               title="上传图片 (支持同时上传多张)"
             >
-              <ImageIcon className="w-4 h-4 text-blue-600" />
+              <ImageIcon className="w-4 h-4 text-[#545E79]" />
               <span className="hidden sm:inline text-[11px]">图片</span>
             </button>
 
@@ -1364,10 +1364,10 @@ export default function MomentsPage() {
             <button
               type="button"
               onClick={() => setShowDoodleModal(true)}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 flex items-center gap-1 text-xs transition-colors"
+              className="p-1.5 rounded-lg hover:bg-[#EEF3FD] text-[#545E79] flex items-center gap-1 text-xs transition-colors"
               title="即兴手绘涂鸦 (可与图片同时发送)"
             >
-              <Palette className="w-4 h-4 text-indigo-600" />
+              <Palette className="w-4 h-4 text-[#64708F]" />
               <span className="hidden sm:inline text-[11px]">手绘涂鸦</span>
             </button>
 
@@ -1376,18 +1376,18 @@ export default function MomentsPage() {
               <button
                 type="button"
                 onClick={() => setShowMoodMenu(!showMoodMenu)}
-                className={`p-1.5 rounded-lg hover:bg-slate-100 flex items-center gap-1 text-xs transition-colors ${
-                  selectedMood ? 'bg-amber-50 text-amber-700 font-bold' : 'text-slate-600'
+                className={`p-1.5 rounded-lg hover:bg-[#EEF3FD] flex items-center gap-1 text-xs transition-colors ${
+                  selectedMood ? 'bg-[#EEF3FD] text-[#545E79] font-bold border border-[#BDC6E3]' : 'text-[#545E79]'
                 }`}
                 title="选择心情 (支持不选)"
               >
                 <span>{selectedMood || <Smile className="w-4 h-4 text-amber-500" />}</span>
                 <span className="text-[11px]">{selectedMood ? '已选' : '心情'}</span>
-                <ChevronDown className="w-3 h-3 text-slate-400" />
+                <ChevronDown className="w-3 h-3 text-[#64708F]" />
               </button>
 
               {showMoodMenu && (
-                <div className="absolute bottom-8 left-0 z-50 bg-white rounded-xl shadow-xl border border-slate-200 p-2 grid grid-cols-5 gap-1.5 w-52 animate-fade-in">
+                <div className="absolute bottom-8 left-0 z-50 bg-white rounded-xl shadow-xl border border-[#BDC6E3] p-2 grid grid-cols-5 gap-1.5 w-52 animate-fade-in">
                   {MOOD_OPTIONS.map((m) => (
                     <button
                       key={m.label}
@@ -1398,8 +1398,8 @@ export default function MomentsPage() {
                       }}
                       className={`p-1.5 rounded-lg text-center text-xs transition-all ${
                         selectedMood === m.emoji || (!selectedMood && !m.emoji)
-                          ? 'bg-slate-900 text-white font-bold'
-                          : 'hover:bg-slate-100 text-slate-700'
+                          ? 'bg-[#545E79] text-white font-bold'
+                          : 'hover:bg-[#EEF3FD] text-[#2C3345]'
                       }`}
                     >
                       <span className="text-base block">{m.emoji || '🚫'}</span>
@@ -1414,17 +1414,17 @@ export default function MomentsPage() {
             <button
               type="button"
               onClick={() => setShowQuickStatus(!showQuickStatus)}
-              className={`p-1.5 rounded-lg hover:bg-slate-100 flex items-center gap-1 text-xs transition-colors ${
-                showQuickStatus ? 'bg-blue-50 text-blue-600 font-bold' : 'text-slate-600'
+              className={`p-1.5 rounded-lg hover:bg-[#EEF3FD] flex items-center gap-1 text-xs transition-colors ${
+                showQuickStatus ? 'bg-[#EEF3FD] text-[#545E79] font-bold border border-[#BDC6E3]' : 'text-[#545E79]'
               }`}
               title="快速状态打卡"
             >
-              <Sparkles className="w-4 h-4 text-emerald-500" />
+              <Sparkles className="w-4 h-4 text-[#545E79]" />
               <span className="hidden sm:inline text-[11px]">打卡</span>
             </button>
           </div>
 
-          <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
+          <span className="text-[10px] text-[#64708F] font-mono hidden sm:inline">
             Enter 发送 · Shift+Enter 换行
           </span>
         </div>
@@ -1447,13 +1447,13 @@ export default function MomentsPage() {
               }
             }}
             placeholder="发送消息交流（支持 Ctrl+V 粘贴截图）..."
-            className="flex-1 max-h-24 min-h-[36px] py-1.5 px-3 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-slate-900 bg-slate-50 resize-none leading-relaxed"
+            className="flex-1 max-h-24 min-h-[36px] py-1.5 px-3 rounded-xl border border-[#BDC6E3] text-xs focus:outline-none focus:ring-2 focus:ring-[#545E79] bg-[#F7FAFE] text-[#2C3345] resize-none leading-relaxed"
           />
 
           <button
             type="submit"
             disabled={submitting || (!content.trim() && attachedImages.length === 0)}
-            className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-200 text-white text-xs font-semibold shadow-xs transition-all flex items-center gap-1 font-mono shrink-0 active:scale-95"
+            className="px-4 py-2 rounded-xl bg-[#545E79] hover:bg-[#3D465C] disabled:bg-[#CAD4EE] text-white text-xs font-semibold shadow-xs transition-all flex items-center gap-1 font-mono shrink-0 active:scale-95"
           >
             <Send className="w-3.5 h-3.5" />
             <span>发送</span>
