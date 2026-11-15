@@ -15,8 +15,9 @@ trigger: always_on
   - **严禁创建 `app/api` 服务端路由**或使用 Node.js 服务端 API。
   - **严禁使用服务端动态渲染 (SSR / Server-Side Rendering)** 或仅能在 Node.js 运行时执行的库。
   - 所有数据读写、实时通信、身份认证统一通过客户端直连 Supabase SDK（PostgreSQL / Realtime Broadcast）实现。
-- **构建与推送验证**：
-  - 每次代码提交前，必须先在本地运行 `npm run build` 验证确保 exit code 为 0，且成功输出 `./out` 目录。
+- **构建与自动推送流程（强制铁律）**：
+  - 每次代码调整后，必须在本地运行 `npm run build` 验证确保 exit code 为 0，且成功输出 `./out` 目录；
+  - 本地验证通过后，**必须自动执行 Git 提交并推送到 GitHub `main` 分支**，触发 Cloudflare Workers 自动构建。
 
 ## 3. 线上测试基准
 - 线上 E2E 自动化测试统一使用最新的 Cloudflare 线上地址，不再以旧 Netlify 为准。
