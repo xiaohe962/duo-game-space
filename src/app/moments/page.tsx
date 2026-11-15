@@ -1384,24 +1384,24 @@ export default function MomentsPage() {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className="p-1.5 rounded-lg hover:bg-[#EEF3FD] text-[#545E79] flex items-center gap-1 text-xs transition-colors"
-              title="上传图片 (支持同时上传多张)"
+              title="上传图片"
             >
               <ImageIcon className="w-4 h-4 text-[#545E79]" />
               <span className="hidden sm:inline text-[11px]">图片</span>
             </button>
 
-            {/* 即兴涂鸦便签 */}
+            {/* 手绘涂鸦 */}
             <button
               type="button"
               onClick={() => setShowDoodleModal(true)}
               className="p-1.5 rounded-lg hover:bg-[#EEF3FD] text-[#545E79] flex items-center gap-1 text-xs transition-colors"
-              title="即兴手绘涂鸦 (可与图片同时发送)"
+              title="手绘涂鸦"
             >
               <Palette className="w-4 h-4 text-[#64708F]" />
-              <span className="hidden sm:inline text-[11px]">手绘涂鸦</span>
+              <span className="hidden sm:inline text-[11px]">涂鸦</span>
             </button>
 
-            {/* 心情下拉选择（支持“无心情”空选项） */}
+            {/* 心情选择 */}
             <div className="relative">
               <button
                 type="button"
@@ -1409,7 +1409,7 @@ export default function MomentsPage() {
                 className={`p-1.5 rounded-lg hover:bg-[#EEF3FD] flex items-center gap-1 text-xs transition-colors ${
                   selectedMood ? 'bg-[#EEF3FD] text-[#545E79] font-bold border border-[#BDC6E3]' : 'text-[#545E79]'
                 }`}
-                title="选择心情 (支持不选)"
+                title="选择心情"
               >
                 <span>{selectedMood || <Smile className="w-4 h-4 text-amber-500" />}</span>
                 <span className="text-[11px]">{selectedMood ? '已选' : '心情'}</span>
@@ -1476,7 +1476,7 @@ export default function MomentsPage() {
                 handleSendMessage();
               }
             }}
-            placeholder="发送消息交流（支持 Ctrl+V 粘贴截图）..."
+            placeholder="发送消息..."
             className="flex-1 max-h-24 min-h-[36px] py-1.5 px-3 rounded-xl border border-[#BDC6E3] text-xs focus:outline-none focus:ring-2 focus:ring-[#545E79] bg-[#F7FAFE] text-[#2C3345] resize-none leading-relaxed"
           />
 

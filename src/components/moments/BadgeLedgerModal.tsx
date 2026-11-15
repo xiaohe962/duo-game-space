@@ -75,7 +75,7 @@ export default function BadgeLedgerModal({
   const [tab, setTab] = useState<'balances' | 'logs' | 'adjust'>('balances');
   const [selectedTarget, setSelectedTarget] = useState<'partner' | 'self'>('partner');
   const [selectedBadge, setSelectedBadge] = useState<BadgeType>('flower');
-  const [amount, setAmount] = useState<number>(1);
+  const [amount, setAmount] = useState<number | string>(1);
   const [direction, setDirection] = useState<1 | -1>(1); // +1 奖励 或 -1 扣除
   const [reason, setReason] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
@@ -100,8 +100,9 @@ export default function BadgeLedgerModal({
 
   const handleAdjustSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const finalDelta = direction * Math.max(1, amount || 1);
-    const finalReason = reason.trim() || (direction > 0 ? '暖心鼓励奖励' : '日常小惩打卡');
+    const numAmount = typeof amount === 'number' ? amount : (parseInt(amount, 10) || 1);
+    const finalDelta = direction * Math.max(1, numAmount);
+    const finalReason = reason.trim() || (direction > 0 ? '奖励' : '扣除');
 
     setSubmitting(true);
     const receiverId = selectedTarget === 'partner' ? partnerUserId : userId;
@@ -410,15 +411,29 @@ export default function BadgeLedgerModal({
                     </button>
                   </div>
 
-                  {/* 手动输入数字输入框（默认 1） */}
+                  {/* 手动输入数字输入框（默认 1，允许清空并在失焦时默认兜底） */}
                   <div className="flex items-center gap-1 shrink-0 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200">
                     <span className="text-[11px] font-medium text-slate-400">数量:</span>
                     <input
-                      type="number"
-                      min={1}
-                      max={999}
+                      type="text"
+                      inputMode="numeric"
                       value={amount}
-                      onChange={(e) => setAmount(Math.max(1, parseInt(e.target.value) || 1))}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '') {
+                          setAmount('');
+                        } else {
+                          const parsed = parseInt(val, 10);
+                          if (!isNaN(parsed)) {
+                            setAmount(Math.min(999, Math.max(0, parsed)));
+                          }
+                        }
+                      }}
+                      onBlur={() => {
+                        if (amount === '' || Number(amount) < 1) {
+                          setAmount(1);
+                        }
+                      }}
                       className="w-12 text-center font-mono font-bold text-xs bg-white border border-slate-200 rounded-md py-1 focus:outline-none focus:ring-1 focus:ring-slate-900"
                     />
                   </div>
@@ -431,11 +446,11 @@ export default function BadgeLedgerModal({
                   <label className="text-xs font-semibold text-slate-700">
                     4. 填写奖惩理由 (选填)
                   </label>
-                  <span className="text-[10px] text-slate-400">不填默认日常互动</span>
+                  <span className="text-[10px] text-slate-400">选填</span>
                 </div>
                 <input
                   type="text"
-                  placeholder="例如：做了好吃的早饭 / 熬夜打屁股 / 陪我聊天..."
+                  placeholder="填写奖惩理由..."
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   maxLength={50}

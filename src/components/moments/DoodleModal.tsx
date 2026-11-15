@@ -211,8 +211,7 @@ export default function DoodleModal({ isOpen, onClose, onSaveDoodle }: DoodleMod
               <Palette className="w-4 h-4" />
             </span>
             <div>
-              <span className="text-xs font-bold text-[#2C3345] block">即兴手绘涂鸦</span>
-              <span className="text-[10px] text-slate-500">支持 11 预设色、自选 HSV 色板与无级粗细</span>
+              <span className="text-xs font-bold text-[#2C3345] block">手绘涂鸦</span>
             </div>
           </div>
           <button

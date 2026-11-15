@@ -1204,10 +1204,7 @@ export default function DrawPage() {
               <div className="w-10 h-10 rounded-xl bg-[#EEF3FD] text-[#545E79] mx-auto flex items-center justify-center border border-[#BDC6E3]">
                 <Palette className="w-5 h-5" />
               </div>
-              <h2 className="text-base font-bold text-[#2C3345]">请选择你要画的词条</h2>
-              <p className="text-xs text-[#64708F]">
-                选定后将进入 120 秒作画时间，另一端将实时看到你的画作！
-              </p>
+              <h2 className="text-base font-bold text-[#2C3345]">选择作画词条</h2>
 
               <div className="grid grid-cols-2 gap-2.5 pt-2">
                 {candidateWords.map((word) => (
@@ -1245,11 +1242,8 @@ export default function DrawPage() {
               </div>
               <div>
                 <h3 className="text-sm font-bold text-[#2C3345]">
-                  {partnerNickname} 正在挑选题目...
+                  {partnerNickname} 正在选词...
                 </h3>
-                <p className="text-xs text-[#64708F] mt-1 leading-relaxed">
-                  如果两端同时卡在等待状态或你想直接作画，可点击下方按钮切换画师或重置。
-                </p>
               </div>
 
               {/* 一键摆脱死锁与强制切换/重置操作区 */}
@@ -1258,19 +1252,17 @@ export default function DrawPage() {
                   type="button"
                   onClick={handleTakeOverPainter}
                   className="px-4 py-2.5 rounded-xl bg-[#545E79] hover:bg-[#3D465C] text-white font-semibold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation cursor-pointer"
-                  title="由我开始选词作画，立即解除等待"
                 >
                   <Palette className="w-3.5 h-3.5" />
-                  <span>换我来画 (切换画师)</span>
+                  <span>换我来画</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleRestartGame}
                   className="px-4 py-2.5 rounded-xl border border-[#BDC6E3] hover:border-[#545E79] bg-[#EEF3FD] hover:bg-white text-[#545E79] font-semibold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 active:scale-95 touch-manipulation cursor-pointer"
-                  title="重置本局状态"
                 >
                   <RotateCcw className="w-3.5 h-3.5 text-[#545E79]" />
-                  <span>重置本局状态</span>
+                  <span>重置对局</span>
                 </button>
               </div>
             </div>
@@ -1316,7 +1308,7 @@ export default function DrawPage() {
 
                 {!isPainter && session?.status === 'drawing' && (
                   <div className="absolute top-2 left-2 pointer-events-none bg-[#2C3345]/85 text-[#D8E2FD] backdrop-blur-sm px-2 py-0.5 rounded text-[10px] font-mono border border-[#545E79]/50">
-                    LIVE · 正在实时观摩 {partnerNickname} 作画
+                    {partnerNickname} 作画中
                   </div>
                 )}
               </div>

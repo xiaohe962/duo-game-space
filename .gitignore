@@ -11,6 +11,7 @@
 
 # Legacy Android and Build Artifacts (500MB+)
 /legacy_android/
+/sheet_music_app/
 /.gradle/
 *.apk
 *.aab
