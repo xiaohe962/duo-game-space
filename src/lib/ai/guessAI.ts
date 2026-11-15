@@ -465,3 +465,75 @@ export async function verifyQuestionFact(params: {
     explanation: String(parsed.explanation || '请根据常识做出判断。'),
   };
 }
+
+export interface AIDrawCandidateWord {
+  name: string;
+  theme: string;
+  drawHint: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+}
+
+/**
+ * 7. 你画我猜：AI 智能生成适合手绘与竞猜的具象词条（具备历史排重能力）
+ */
+export async function generateDrawWordCandidates(params: {
+  theme?: string;
+  count?: number;
+  excludeWords?: string[];
+}): Promise<AIDrawCandidateWord[]> {
+  const count = params.count || 4;
+  const themeDesc =
+    params.theme && params.theme !== '全部'
+      ? `所属分类范围：【${params.theme}】。`
+      : '涵盖水果、动物、日常用品、食物、交通建筑、自然等丰富类目。';
+  const excludeText =
+    params.excludeWords && params.excludeWords.length > 0
+      ? `\n必须排除以下近期已经出现过的词条，绝不可重复：${params.excludeWords.slice(-50).join('、')}。`
+      : '';
+
+  const systemPrompt = `你是一款双人实时在线“你画我猜”游戏的资深出题专家。
+你的任务是为画师生成一组极富画面感、特征直观、易于通过简单线条与颜色画出并供对方竞猜的词条。同一批词条内部绝对不可同名。`;
+
+  const userPrompt = `【出题要求】
+1. ${themeDesc}
+2. 数量：生成恰好 ${count} 个互不相同的新词条。
+3. 纯具象原则：必须是具体有形、可用简单画笔表现的物体（例如：水杯、小黄鸭、热气球、汉堡包、向日葵等），严禁抽象哲学概念（如“自由”、“时间”、“悲伤”等难以画出的词汇）。
+4. 词长限制：词语长度严格为 2 到 4 个汉字。
+5. 作画线索提示 (drawHint)：为每个词提供 15 字以内的趣味半程提示（例如：“一种两片圆面包夹肉饼的快餐”）。
+6. 难度设定：默认适合普通玩家作画，兼顾辨识度与趣味性。${excludeText}
+
+请严格返回如下 JSON 格式：
+{
+  "words": [
+    {
+      "name": "长颈鹿",
+      "theme": "动物",
+      "drawHint": "一种脖子极长的高大非洲动物",
+      "difficulty": "easy"
+    }
+  ]
+}`;
+
+  const jsonStr = await callLLM(systemPrompt, userPrompt, 0.85);
+  const parsed = JSON.parse(jsonStr);
+  const list = parsed.words || parsed.candidates || [];
+
+  const seen = new Set<string>();
+  const results: AIDrawCandidateWord[] = [];
+
+  for (const item of list) {
+    const name = String(item.name || '').trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    results.push({
+      name,
+      theme: String(item.theme || params.theme || '生活').trim(),
+      drawHint: String(item.drawHint || `一种常见的${item.theme || '事物'}`).trim(),
+      difficulty: 'easy',
+    });
+    if (results.length >= count) break;
+  }
+
+  return results;
+}
+

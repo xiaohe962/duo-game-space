@@ -9,6 +9,12 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import { soundEffects } from '@/lib/audio/sound';
 import confetti from 'canvas-confetti';
 import CustomColorPicker from '@/components/draw/CustomColorPicker';
+import AISettingsModal from '@/components/guess/AISettingsModal';
+import {
+  isAIConfigured,
+  getAIModelDisplayName,
+  generateDrawWordCandidates,
+} from '@/lib/ai/guessAI';
 import {
   Palette,
   Sparkles,
@@ -24,6 +30,8 @@ import {
   Check,
   RefreshCw,
   Sliders,
+  Settings,
+  Loader2,
 } from 'lucide-react';
 
 // 精确控制在 11 种高频预制颜色（包含主题深烟青 #545E79、丁香暮蓝 #BDC6E3 与淡冰蓝 #D8E2FD），第 12 个格子为自选调色器
@@ -59,6 +67,12 @@ export default function DrawPage() {
   const [brushSize, setBrushSize] = useState<number>(6);
   const [isEraser, setIsEraser] = useState<boolean>(false);
   const [showClearConfirm, setShowClearConfirm] = useState<boolean>(false);
+
+  // AI 密钥设置与选题生成状态
+  const [showAISettings, setShowAISettings] = useState(false);
+  const [aiModelName, setAiModelName] = useState<string>('未配置');
+  const [aiWordsLoading, setAiWordsLoading] = useState(false);
+  const [usedWordNames, setUsedWordNames] = useState<string[]>([]);
 
   // 角色固定标准 ID
   const hostId = pairCode ? `pair_${pairCode}_host` : '';
@@ -301,17 +315,61 @@ export default function DrawPage() {
     } catch (_) {}
   }, []);
 
+  const refreshAIStatus = useCallback(() => {
+    setAiModelName(getAIModelDisplayName());
+  }, []);
+
+  useEffect(() => {
+    refreshAIStatus();
+  }, [refreshAIStatus]);
+
   // 每局固定锁定 4 个候选词，避免组件渲染或重连时题目不断跳变
   useEffect(() => {
     if (candidateWords.length === 0) {
-      setCandidateWords(getRandomWords(4));
+      const initial = getRandomWords(4, undefined, usedWordNames);
+      setCandidateWords(initial);
+      setUsedWordNames((prev) => [...prev, ...initial.map((w) => w.name)]);
     }
-  }, [candidateWords.length]);
+  }, [candidateWords.length, usedWordNames]);
 
-  // 主动换一批候选题目
+  // 主动换一批候选题目（优先排除历史已出词条，保证不重复）
   const handleRefreshWords = () => {
-    setCandidateWords(getRandomWords(4));
+    const nextWords = getRandomWords(4, undefined, usedWordNames);
+    setCandidateWords(nextWords);
+    setUsedWordNames((prev) => [...prev, ...nextWords.map((w) => w.name)]);
     soundEffects.playPop();
+  };
+
+  // 调用大模型生成具象新词条（具备历史排重能力）
+  const handleGenerateAIWords = async () => {
+    if (!isAIConfigured()) {
+      setShowAISettings(true);
+      return;
+    }
+    setAiWordsLoading(true);
+    try {
+      const aiWords = await generateDrawWordCandidates({
+        count: 4,
+        excludeWords: usedWordNames,
+      });
+      if (aiWords && aiWords.length > 0) {
+        const mapped: WordItem[] = aiWords.map((w, idx) => ({
+          id: 'ai_draw_' + Date.now() + '_' + idx,
+          name: w.name,
+          theme: w.theme,
+          difficulty: w.difficulty || 'easy',
+          note: w.drawHint,
+          drawHint: w.drawHint,
+        }));
+        setCandidateWords(mapped);
+        setUsedWordNames((prev) => [...prev, ...mapped.map((m) => m.name)]);
+        soundEffects.playDing();
+      }
+    } catch (err: any) {
+      alert(err.message || 'AI 题库生成失败');
+    } finally {
+      setAiWordsLoading(false);
+    }
   };
 
   // Supabase Realtime 笔迹广播与状态订阅
@@ -1152,8 +1210,19 @@ export default function DrawPage() {
           </span>
         </div>
 
-        {/* 右侧：重新开始 + 倒计时 + 退出 */}
+        {/* 右侧：AI设置 + 重新开始 + 倒计时 + 退出 */}
         <div className="flex items-center gap-1.5 sm:gap-2 order-2 sm:order-3">
+          {/* AI 密钥设置按钮 */}
+          <button
+            type="button"
+            onClick={() => setShowAISettings(true)}
+            className="px-2 sm:px-2.5 py-1 rounded-lg bg-[#EEF3FD] hover:bg-[#D8E2FD] text-[#545E79] hover:text-[#2C3345] text-xs font-semibold flex items-center gap-1 transition-all active:scale-95 border border-[#BDC6E3]/60 shadow-2xs"
+            title="配置 Gemini 或 DeepSeek API Key"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span className="text-[11px] sm:text-xs">AI: {aiModelName}</span>
+          </button>
+
           {/* 重新开始按钮 */}
           <button
             type="button"
@@ -1223,8 +1292,8 @@ export default function DrawPage() {
                 ))}
               </div>
 
-              {/* 换一批按钮 */}
-              <div className="pt-2 flex justify-center">
+              {/* 换词与 AI 灵感题库操作栏 */}
+              <div className="pt-2 flex flex-wrap items-center justify-center gap-2">
                 <button
                   type="button"
                   onClick={handleRefreshWords}
@@ -1232,6 +1301,21 @@ export default function DrawPage() {
                 >
                   <RefreshCw className="w-3.5 h-3.5 text-[#545E79]" />
                   <span>换一批题目</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleGenerateAIWords}
+                  disabled={aiWordsLoading}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#545E79] hover:bg-[#3D465C] disabled:bg-[#CAD4EE] text-white text-xs font-medium transition-all shadow-2xs active:scale-95"
+                  title="使用 AI 实时生成 4 个富有画面感的新词条"
+                >
+                  {aiWordsLoading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5 text-[#D8E2FD]" />
+                  )}
+                  <span>AI 灵感题库</span>
                 </button>
               </div>
             </div>
@@ -1590,6 +1674,13 @@ export default function DrawPage() {
           </div>
         </div>
       )}
+
+      {/* AI 密钥设置弹窗 */}
+      <AISettingsModal
+        isOpen={showAISettings}
+        onClose={() => setShowAISettings(false)}
+        onConfigSaved={refreshAIStatus}
+      />
     </div>
   );
 }
