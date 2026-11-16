@@ -1306,7 +1306,7 @@ export default function MomentsPage() {
       </div>
 
       {/* 底部固定输入区（QQ 式输入条，紧贴底部防输入法遮挡） */}
-      <div className="sticky bottom-0 z-20 bg-white/95 backdrop-blur-md rounded-2xl border border-[#BDC6E3] shadow-md p-2 sm:p-2.5 space-y-1.5 shrink-0 mt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <div className="sticky bottom-0 z-20 w-full min-w-0 max-w-full bg-white/95 backdrop-blur-md rounded-2xl border border-[#BDC6E3] shadow-md p-2 sm:p-2.5 space-y-1.5 shrink-0 mt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] overflow-hidden">
         {/* 引用回复提示条（带图片/涂鸦缩略图） */}
         {replyingTo && (() => {
           const replyingImages = replyingTo.image_url ? parseImages(replyingTo.image_url) : [];
@@ -1363,7 +1363,7 @@ export default function MomentsPage() {
 
         {/* 快捷打卡展开抽屉 */}
         {showQuickStatus && (
-          <div className="pt-1 pb-1.5 border-b border-slate-100 animate-fade-in">
+          <div className="w-full min-w-0 max-w-full overflow-hidden pt-1 pb-1.5 border-b border-[#CAD4EE]/40 animate-fade-in">
             <QuickStatusBar onSelectStatus={handleSelectQuickStatus} disabled={submitting} />
           </div>
         )}
